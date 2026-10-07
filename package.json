@@ -58,7 +58,7 @@
     "tsx": "^4.19.3",
     "typescript": "~5.7.2",
     "vite": "^6.1.0",
-    "wrangler": "^4.148.0",
+    "wrangler": "^4.15.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "overrides": {

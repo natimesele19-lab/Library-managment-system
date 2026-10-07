@@ -1,0 +1,240 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "queryCompiler"]
+  engineType      = "client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  LIBRARIAN
+  MEMBER
+}
+
+enum PatronType {
+  STUDENT
+  TEACHER
+}
+
+enum LoanStatus {
+  ACTIVE
+  RETURNED
+}
+
+enum FormEntity {
+  BOOK
+  PATRON
+  INVENTORY
+}
+
+enum ReservationStatus {
+  REQUESTED
+  RESERVED
+  FULFILLED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(LIBRARIAN)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  auditLogs    AuditLog[]
+  finePayments FinePayment[] @relation("FineReceived")
+  patronId     String?  @unique
+  patron       Patron?  @relation(fields: [patronId], references: [id], onDelete: Cascade)
+
+  @@index([role, active])
+}
+
+model Book {
+  id              String     @id @default(cuid())
+  title           String
+  author          String
+  isbn            String?    @unique
+  category        String?
+  description     String?
+  publisher       String?
+  publishedYear   Int?
+  shelfLocation   String?
+  copies          Int        @default(1)
+  availableCopies Int        @default(1)
+  customFields    String     @default("{}")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  loanItems       LoanItem[]
+  reservations    BookReservation[]
+
+  @@index([title])
+  @@index([author])
+  @@index([category])
+}
+
+model Patron {
+  id          String     @id @default(cuid())
+  memberCode  String     @unique
+  name        String
+  email       String     @unique
+  phone       String?
+  type        PatronType
+  grade       String?
+  department  String?
+  active      Boolean    @default(true)
+  customFields String    @default("{}")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  loans       Loan[]
+  account     User?
+  reservations BookReservation[]
+
+  @@index([name])
+  @@index([type, active])
+}
+
+model Loan {
+  id          String     @id @default(cuid())
+  patronId    String
+  patron      Patron     @relation(fields: [patronId], references: [id], onDelete: Restrict)
+  issuedAt    DateTime   @default(now())
+  dueDate     DateTime
+  status      LoanStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  loanItems   LoanItem[]
+
+  @@index([patronId, status])
+  @@index([status, dueDate])
+}
+
+model LoanItem {
+  id         String    @id @default(cuid())
+  loanId     String
+  loan       Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  bookId     String
+  book       Book      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  returnedAt DateTime?
+  fine Float @default(0)
+  createdAt  DateTime  @default(now())
+  payments   FinePayment[]
+  reminders  OverdueReminder[]
+
+  @@index([loanId])
+  @@index([bookId, returnedAt])
+}
+
+model BookReservation {
+  id          String            @id @default(cuid())
+  patronId    String
+  patron      Patron            @relation(fields: [patronId], references: [id], onDelete: Cascade)
+  bookId      String
+  book        Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  status      ReservationStatus @default(REQUESTED)
+  requestedAt DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([patronId, status, requestedAt])
+  @@index([bookId, status])
+}
+
+model InventoryAsset {
+  id           String   @id @default(cuid())
+  name         String
+  category     String
+  quantity     Int      @default(1)
+  location     String?
+  condition    String   @default("GOOD")
+  purchaseDate DateTime?
+  value Float?
+  notes        String?
+  customFields String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+  @@index([condition])
+}
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  title     String
+  author    String?
+  mediaType String
+  fileName  String
+  mimeType  String
+  filePath  String
+  fileSize  Int
+  createdAt DateTime @default(now())
+
+  @@index([mediaType])
+}
+
+model FinePayment {
+  id          String   @id @default(cuid())
+  loanItemId  String
+  loanItem    LoanItem @relation(fields: [loanItemId], references: [id], onDelete: Restrict)
+  amount Float
+  receivedById String
+  receivedBy  User     @relation("FineReceived", fields: [receivedById], references: [id], onDelete: Restrict)
+  paidAt      DateTime @default(now())
+
+  @@index([paidAt])
+  @@index([loanItemId])
+}
+
+model OverdueReminder {
+  id          String   @id @default(cuid())
+  loanItemId  String
+  loanItem    LoanItem @relation(fields: [loanItemId], references: [id], onDelete: Cascade)
+  reminderDay String
+  sentAt      DateTime @default(now())
+
+  @@unique([loanItemId, reminderDay])
+  @@index([reminderDay])
+}
+
+model LibrarySetting {
+  id          String @id @default("global")
+  libraryName String @default("Libra")
+  appTitle    String @default("Library Management")
+  englishText String @default("{}")
+  amharicText String @default("{}")
+  updatedAt   DateTime @updatedAt
+}
+
+model CustomField {
+  id        String     @id @default(cuid())
+  key       String
+  label     String
+  labelAm   String?
+  type      String     @default("text")
+  entity    FormEntity
+  required  Boolean    @default(false)
+  options   String?
+  createdAt DateTime   @default(now())
+
+  @@unique([key, entity])
+  @@index([entity])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entity     String
+  entityId   String?
+  details    String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}

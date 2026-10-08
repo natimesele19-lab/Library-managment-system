@@ -191,7 +191,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
 
 function App() {
   const { t } = useTranslation();
-  const { settings: librarySettings, setSettings: setLibrarySettings, language, setLanguage } = useSettings();
+  const { settings: librarySettings, setSettings: setLibrarySettings, language, setLanguage, saveSettings, changeAdminPassword } = useSettings();
   const [token, setToken] = useState(() => localStorage.getItem("library-token"));
   const [currentUser, setCurrentUser] = useState<Account | null>(savedAccount);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("library-theme") === "dark");
@@ -450,9 +450,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const saved = await api.put<LibrarySettings>("/admin/settings", next);
-      setLibrarySettings(saved);
-      await setLanguage(saved.defaultLanguage);
+      await saveSettings(next);
       setSuccess(t("settingsSaved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save library settings.");
@@ -465,7 +463,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await api.post("/admin/change-password", { currentPassword, newPassword });
+      await changeAdminPassword(currentPassword, newPassword);
       setSuccess(t("passwordChanged"));
       return true;
     } catch (err) {
@@ -802,7 +800,7 @@ function App() {
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} />}
         {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} busy={busy} onSave={saveLibrarySettings}
-          isAdmin={currentUser.role === "ADMIN"} onChangeLanguage={setLanguage} onChangePassword={changePassword}
+          onChangeLanguage={setLanguage} onChangePassword={changePassword}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
@@ -1258,11 +1256,11 @@ function Reports({ stats, loading, t }: { stats: Stats | null; loading: boolean;
   </>;
 }
 
-function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdit, onRemove, isAdmin, onChangeLanguage, onChangePassword }: {
+function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
   fields: FormField[]; loading: boolean; t: (key: string) => string; settings: LibrarySettings; busy: boolean;
   onSave: (settings: LibrarySettings) => Promise<void>; onAdd: () => void;
   onEdit: (field: FormField) => void; onRemove: (id: string) => void;
-  isAdmin: boolean; onChangeLanguage: (language: "en" | "am") => Promise<void>;
+  onChangeLanguage: (language: "en" | "am") => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState(settings);
@@ -1272,6 +1270,8 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
   const [footerNoticeAmharic, setFooterNoticeAmharic] = useState(settings.amharicText.footerNotice || "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   useEffect(() => {
     setDraft(settings);
     setFooterNoticeEnglish(settings.englishText.footerNotice || "");
@@ -1313,14 +1313,26 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
 
   async function savePassword(event: FormEvent) {
     event.preventDefault();
+    setPasswordError("");
+    if (newPassword !== confirmPassword) {
+      setPasswordError(t("passwordMismatch"));
+      return;
+    }
     if (await onChangePassword(currentPassword, newPassword)) {
       setCurrentPassword("");
       setNewPassword("");
+      setConfirmPassword("");
     }
   }
 
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("appName")} · {t("adminSettings")}</div><h1 className="page-title">{t("settings")}</h1><p className="page-description">{t("libraryBranding")}</p></div></div>
+    <section className="panel settings-form" aria-labelledby="admin-settings-welcome">
+      <div className="settings-body">
+        <div className="eyebrow">{t("appName")} · {t("adminSettings")}</div>
+        <h1 id="admin-settings-welcome" className="page-title">Welcome Admin</h1>
+        <p className="page-description">{t("welcomeSub")}</p>
+      </div>
+    </section>
     <form className="panel settings-form" onSubmit={save}>
       <div className="panel-head"><div><div className="panel-title">{t("libraryBranding")}</div><div className="panel-subtitle">{t("interfaceTextHelp")}</div></div><ShieldCheck size={16} color="#67957f" /></div>
       <div className="settings-body">
@@ -1344,16 +1356,18 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
         <div className="settings-actions"><button className="button button-primary" disabled={busy}><Check size={13} />{t("saveSettings")}</button></div>
       </div>
     </form>
-    {isAdmin && <form className="panel settings-form" onSubmit={(event) => void savePassword(event)}>
+    <form className="panel settings-form" onSubmit={(event) => void savePassword(event)}>
       <div className="panel-head"><div><div className="panel-title">{t("changePassword")}</div><div className="panel-subtitle">{t("changePasswordHelp")}</div></div><KeyRound size={16} color="#67957f" /></div>
       <div className="settings-body">
         <div className="form-grid">
           <FieldInput label={t("currentPassword")} name="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} required />
           <FieldInput label={t("newPassword")} name="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={setNewPassword} minLength={12} required />
+          <FieldInput label={t("confirmPassword")} name="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} minLength={12} required />
         </div>
+        {passwordError && <div className="notice" role="alert">{passwordError}</div>}
         <div className="settings-actions"><button className="button button-primary" disabled={busy}><Check size={13} />{t("savePassword")}</button></div>
       </div>
-    </form>}
+    </form>
     <section className="panel settings-custom-fields">
       <div className="panel-head"><div><div className="panel-title">{t("customForms")}</div><div className="panel-subtitle">{t("configureFields")}</div></div><button className="button button-primary" onClick={onAdd}><Plus size={13} />{t("addField")}</button></div>
       {loading ? <div className="loading-state">{t("loading")}</div> : fields.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("fieldLabel")}</th><th>{t("fieldType")}</th><th>{t("entity")}</th><th>{t("requiredField")}</th><th>{t("actions")}</th></tr></thead><tbody>{fields.map((field) => <tr key={field.id || field.key}><td>{i18n.language === "am" ? field.labelAm || field.label : field.label}</td><td>{t(`field${field.type.charAt(0).toUpperCase()}${field.type.slice(1)}`)}</td><td>{field.entity || "—"}</td><td>{field.required ? t("yes") : t("no")}</td><td><button className="row-action" onClick={() => onEdit(field)} aria-label={t("edit")}><Settings size={14} /></button><button className="row-action" onClick={() => onRemove(field.id || field.key)} aria-label={t("delete")}><Trash2 size={14} /></button></td></tr>)}</tbody></table></div> : <div className="empty-state">{t("noRecords")}</div>}

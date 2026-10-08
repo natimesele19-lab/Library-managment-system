@@ -23,6 +23,8 @@ type SettingsContextValue = {
   setSettings: Dispatch<SetStateAction<LibrarySettings>>;
   language: string;
   setLanguage: (language: "en" | "am") => Promise<void>;
+  saveSettings: (settings: LibrarySettings) => Promise<LibrarySettings>;
+  changeAdminPassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -60,6 +62,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings,
     language,
     setLanguage: async (nextLanguage) => { await i18n.changeLanguage(nextLanguage); },
+    saveSettings: async (nextSettings) => {
+      const savedSettings = await api.put<LibrarySettings>("/admin/settings", nextSettings);
+      setSettings(savedSettings);
+      await i18n.changeLanguage(savedSettings.defaultLanguage);
+      return savedSettings;
+    },
+    changeAdminPassword: async (currentPassword, newPassword) => {
+      await api.post("/admin/change-password", { currentPassword, newPassword });
+    },
   }}>{children}</SettingsContext.Provider>;
 }
 

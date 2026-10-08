@@ -2,5 +2,6 @@ node_modules/
 dist/
 dist-server/
 .env
+.env.local
 uploads/
 *.tsbuildinfo

@@ -14,7 +14,7 @@ const en = {
   reports: "Reports",
   settings: "Settings",
   overview: "Overview",
-  welcome: "Good morning, Admin",
+  welcome: "Welcome Admin",
   welcomeSub: "Here's what's happening in your library today.",
   totalBooks: "Total books",
   borrowed: "Books borrowed",
@@ -265,6 +265,15 @@ const en = {
   selectedBooks: "selected",
   noActiveReturns: "There are no books currently checked out.",
   fineCalculated: "Late fees are calculated automatically on return.",
+  footerNotice: "",
+  footerNoticePlaceholder: "Optional notice shown at the bottom of the app",
+  changePassword: "Change password",
+  changePasswordHelp: "Confirm your current password and choose a new one (at least 12 characters).",
+  currentPassword: "Current password",
+  newPassword: "New password",
+  savePassword: "Update password",
+  passwordChanged: "Password updated successfully.",
+  passwordChangeFailed: "Unable to change password.",
 };
 
 const am = {
@@ -280,7 +289,7 @@ const am = {
   reports: "ሪፖርቶች",
   settings: "ቅንብሮች",
   overview: "አጠቃላይ እይታ",
-  welcome: "እንደምን አደሩ፣ አስተዳዳሪ",
+  welcome: "እንኳን ደህና መጡ አስተዳዳሪ",
   welcomeSub: "ዛሬ በቤተ መጻሕፍትዎ የሚከናወነው ይህ ነው።",
   totalBooks: "ጠቅላላ መጻሕፍት",
   borrowed: "የተዋሱ መጻሕፍት",
@@ -531,6 +540,15 @@ const am = {
   selectedBooks: "ተመርጠዋል",
   noActiveReturns: "በአሁኑ ጊዜ የተዋሱ መጻሕፍት የሉም።",
   fineCalculated: "ዘግይተው የሚመለሱ ቅጣቶች ሲመለሱ በራስ-ሰር ይሰላሉ።",
+  footerNotice: "",
+  footerNoticePlaceholder: "በመተግበሪያው ግርጌ የሚታይ አማራጭ ማስታወቂያ",
+  changePassword: "የይለፍ ቃል ቀይር",
+  changePasswordHelp: "የአሁኑን የይለፍ ቃል ያረጋግጡና አዲስ ይምረጡ (ቢያንስ 12 ቁምፊዎች).",
+  currentPassword: "የአሁኑ የይለፍ ቃል",
+  newPassword: "አዲስ የይለፍ ቃል",
+  savePassword: "የይለፍ ቃል አዘምን",
+  passwordChanged: "የይለፍ ቃሉ በተሳካ ሁኔታ ተቀይሯል።",
+  passwordChangeFailed: "የይለፍ ቃሉን መቀየር አልተቻለም።",
 };
 
 export function applyTextOverrides(english: Record<string, string>, amharic: Record<string, string>) {

@@ -17,7 +17,7 @@ A bilingual (English / Amharic) library management application built with React,
 5. Create or update the administrator account: `npm run seed` (or `npm run db:seed`).
 6. Start the web app and API: `npm run dev`.
 
-The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The administrator signs in with the credentials configured in `.env`. Do not use development credentials in production.
+The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The administrator signs in with the credentials configured in `.env`. The local frontend API URL is set in the ignored `.env.local`; `CLIENT_ORIGIN` can contain a comma-separated list of allowed frontend origins. Do not use development credentials in production.
 
 ## Features
 
@@ -47,7 +47,9 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | POST | `/api/auth/login` | Sign in and receive an 8-hour access token |
 | GET | `/api/auth/me` | Read the signed-in account |
 | GET | `/api/public/settings` | Read public library branding and interface text |
-| PUT | `/api/settings` | Update branding and English/Amharic interface text (admin only) |
+| GET, POST, PUT | `/api/admin/settings` | Read or update branding, default language, footer notices, and English/Amharic interface text (admin only) |
+| PUT | `/api/settings` | Legacy update route for library settings (admin only) |
+| POST, PUT | `/api/admin/change-password` | Verify the current password and set a new administrator password |
 | GET | `/api/dashboard` | Dashboard aggregates and circulation charts |
 | GET, POST | `/api/books` | Search and create books |
 | PUT, DELETE | `/api/books/:id` | Update and remove books |

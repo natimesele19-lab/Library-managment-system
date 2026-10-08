@@ -204,6 +204,7 @@ button { cursor: pointer; }
 .settings-translation-row { display: grid; grid-template-columns: 1.05fr 1fr 1fr 28px; align-items: end; gap: 10px; padding: 10px 0; border-top: 1px solid #f0f2f2; }
 .translation-remove { margin-bottom: 7px; }
 .settings-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.app-footer { padding: 20px 0 0; color: #929b9a; font-size: 10px; text-align: center; }
 .settings-custom-fields { overflow: hidden; }
 .settings-custom-fields .panel-head { padding-bottom: 14px; }
 .reservation-count { color: #475569; font-size: 12px; font-weight: 650; white-space: nowrap; }

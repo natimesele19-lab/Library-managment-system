@@ -201,12 +201,13 @@ model OverdueReminder {
 }
 
 model LibrarySetting {
-  id          String @id @default("global")
-  libraryName String @default("Libra")
-  appTitle    String @default("Library Management")
-  englishText String @default("{}")
-  amharicText String @default("{}")
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default("global")
+  libraryName     String   @default("Libra")
+  appTitle        String   @default("Library Management")
+  defaultLanguage String   @default("en")
+  englishText     String   @default("{}")
+  amharicText     String   @default("{}")
+  updatedAt       DateTime @updatedAt
 }
 
 model CustomField {

@@ -18,16 +18,32 @@ import { sendDailyOverdueReminders } from "./reminders.js";
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
-const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map((origin) => origin.trim());
+const allowedOrigins = new Set([
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
+  ...(process.env.CLIENT_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean),
+]);
 const finePerDay = Number(process.env.FINE_PER_DAY || 5);
 const asyncRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
   (req: AuthRequest, res: Response, next: NextFunction) => { void handler(req, res).catch(next); };
 
 app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/admin/change-password", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 app.get("/api/public/settings", asyncRoute(async (_req, res) => {
@@ -35,6 +51,7 @@ app.get("/api/public/settings", asyncRoute(async (_req, res) => {
   res.json({
     libraryName: settings?.libraryName || "Libra",
     appTitle: settings?.appTitle || "Library Management",
+    defaultLanguage: settings?.defaultLanguage || "en",
     englishText: settings ? JSON.parse(settings.englishText) : {},
     amharicText: settings ? JSON.parse(settings.amharicText) : {},
   });
@@ -100,23 +117,96 @@ app.get("/api/auth/me", asyncRoute(async (req, res) => {
   res.json({ id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role, patronId: user.patronId || undefined, patronType: user.patron?.type });
 }));
 
-app.put("/api/settings", requireAdmin, asyncRoute(async (req, res) => {
+const changeAdminPassword = asyncRoute(async (req, res) => {
+  try {
+    const body: unknown = req.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      res.status(400).json({ error: "A valid password change request is required." });
+      return;
+    }
+    const { currentPassword, newPassword } = body as { currentPassword?: unknown; newPassword?: unknown };
+    if (typeof currentPassword !== "string" || !currentPassword ||
+        typeof newPassword !== "string" || newPassword.length < 12 ||
+        Buffer.byteLength(newPassword, "utf8") > 72) {
+      res.status(400).json({ error: "Enter your current password and a new password of at least 12 characters and no more than 72 UTF-8 bytes." });
+      return;
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user) {
+      res.status(404).json({ error: "Administrator account not found." });
+      return;
+    }
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      res.status(400).json({ error: "Current password is incorrect." });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      res.status(400).json({ error: "The new password must differ from the current password." });
+      return;
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    await audit(req, "UPDATE", "ADMIN_PASSWORD", user.id);
+    res.json({ message: "Password updated successfully." });
+  } catch (error) {
+    console.error(`Admin password change failed (${req.method} ${req.path}).`, error);
+    res.status(500).json({ error: "Unable to change password. Please try again." });
+  }
+});
+
+app.route("/api/admin/change-password")
+  .post(requireAdmin, changeAdminPassword)
+  .put(requireAdmin, changeAdminPassword);
+
+const getAdminSettings = asyncRoute(async (_req, res) => {
+  const settings = await prisma.librarySetting.findUnique({ where: { id: "global" } });
+  res.json({
+    libraryName: settings?.libraryName || "Libra",
+    appTitle: settings?.appTitle || "Library Management",
+    defaultLanguage: settings?.defaultLanguage || "en",
+    englishText: settings ? JSON.parse(settings.englishText) : {},
+    amharicText: settings ? JSON.parse(settings.amharicText) : {},
+  });
+});
+
+const saveAdminSettings = asyncRoute(async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "A valid library settings object is required." });
+    return;
+  }
   const { libraryName, appTitle } = req.body as { libraryName?: unknown; appTitle?: unknown };
   if (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80 ||
       typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80) {
     res.status(400).json({ error: "Library name and app title must each contain 1–80 characters." });
     return;
   }
+  const current = req.body.defaultLanguage === undefined
+    ? await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { defaultLanguage: true } })
+    : null;
+  const defaultLanguage = req.body.defaultLanguage ?? current?.defaultLanguage ?? "en";
+  if (defaultLanguage !== "en" && defaultLanguage !== "am") {
+    res.status(400).json({ error: "Default language must be either 'en' or 'am'." });
+    return;
+  }
   const englishText = validateTranslationMap(req.body.englishText);
   const amharicText = validateTranslationMap(req.body.amharicText);
   const settings = await prisma.librarySetting.upsert({
     where: { id: "global" },
-    create: { id: "global", libraryName: libraryName.trim(), appTitle: appTitle.trim(), englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
-    update: { libraryName: libraryName.trim(), appTitle: appTitle.trim(), englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
+    create: { id: "global", libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
+    update: { libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
   });
   await audit(req, "UPDATE", "LIBRARY_SETTINGS", settings.id);
-  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, englishText, amharicText });
-}));
+  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, defaultLanguage: settings.defaultLanguage, englishText, amharicText });
+});
+
+app.route("/api/admin/settings")
+  .get(requireAdmin, getAdminSettings)
+  .post(requireAdmin, saveAdminSettings)
+  .put(requireAdmin, saveAdminSettings);
+app.put("/api/settings", requireAdmin, saveAdminSettings);
 
 app.get("/api/portal/me", asyncRoute(async (req, res) => {
   if (!req.user?.patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }

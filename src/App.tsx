@@ -12,7 +12,8 @@ import {
   XAxis, YAxis,
 } from "recharts";
 import { api, download, request, type ApiRecord } from "./api";
-import i18n, { applyTextOverrides } from "./i18n";
+import i18n from "./i18n";
+import { useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
 
 type Page = "dashboard" | "books" | "students" | "staff" | "circulation" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
@@ -27,10 +28,8 @@ type Stats = {
 };
 type FormField = { id?: string; key: string; label: string; labelAm?: string | null; type: string; required?: boolean; entity?: string; placeholder?: string };
 type Account = { id: string; name: string; email: string; role: string; patronId?: string; patronType?: "STUDENT" | "TEACHER"; memberCode?: string };
-type LibrarySettings = { libraryName: string; appTitle: string; englishText: Record<string, string>; amharicText: Record<string, string> };
 type PortalReservation = Row & { status: "REQUESTED" | "RESERVED" | "FULFILLED" | "CANCELLED"; book: Row };
 type StaffReservation = PortalReservation & { patron: Row };
-const defaultLibrarySettings: LibrarySettings = { libraryName: "Libra", appTitle: "Library Management", englishText: {}, amharicText: {} };
 
 function savedAccount(): Account | null {
   try {
@@ -40,6 +39,7 @@ function savedAccount(): Account | null {
     localStorage.removeItem("library-user");
     return null;
   }
+
 }
 
 const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; section: "main" | "manage" }[] = [
@@ -191,9 +191,9 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
 
 function App() {
   const { t } = useTranslation();
+  const { settings: librarySettings, setSettings: setLibrarySettings, language, setLanguage } = useSettings();
   const [token, setToken] = useState(() => localStorage.getItem("library-token"));
   const [currentUser, setCurrentUser] = useState<Account | null>(savedAccount);
-  const [librarySettings, setLibrarySettings] = useState<LibrarySettings>(defaultLibrarySettings);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("library-theme") === "dark");
   const [sessionLoading, setSessionLoading] = useState(Boolean(localStorage.getItem("library-token")) && !savedAccount());
   const [page, setPage] = useState<Page>("dashboard");
@@ -222,19 +222,6 @@ function App() {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("library-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void api.get<LibrarySettings>("/public/settings").then((settings) => {
-      if (cancelled) return;
-      setLibrarySettings(settings);
-      applyTextOverrides(settings.englishText, settings.amharicText);
-      document.title = settings.appTitle;
-    }).catch((cause: unknown) => {
-      if (!cancelled) console.warn("Unable to load library branding; using default settings.", cause);
-    });
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     const unauthenticated = () => {
@@ -275,12 +262,10 @@ function App() {
       } else if (page === "settings") {
         const [fields, settings] = await Promise.all([
           api.get<FormField[]>("/custom-fields"),
-          api.get<LibrarySettings>("/public/settings"),
+          api.get<LibrarySettings>("/admin/settings"),
         ]);
         setCustomFields(fields);
         setLibrarySettings(settings);
-        applyTextOverrides(settings.englishText, settings.amharicText);
-        document.title = settings.appTitle;
       } else if (page === "circulation") {
         const loans = await api.get<Row[]>(`/loans?status=${encodeURIComponent(statusFilter)}`);
         setRecords(loans);
@@ -349,7 +334,7 @@ function App() {
 
   if (currentUser.role === "MEMBER") return <SelfServicePortal user={currentUser} libraryName={librarySettings.libraryName} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onSignOut={signOut} />;
 
-  const changeLanguage = () => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); };
+  const changeLanguage = () => { void setLanguage(language === "en" ? "am" : "en"); };
   const selectedItem = navItems.find((item) => item.page === page);
 
   function startCreate() {
@@ -465,13 +450,27 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const saved = await api.put<LibrarySettings>("/settings", next);
+      const saved = await api.put<LibrarySettings>("/admin/settings", next);
       setLibrarySettings(saved);
-      applyTextOverrides(saved.englishText, saved.amharicText);
-      document.title = saved.appTitle;
+      await setLanguage(saved.defaultLanguage);
       setSuccess(t("settingsSaved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save library settings.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changePassword(currentPassword: string, newPassword: string): Promise<boolean> {
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/admin/change-password", { currentPassword, newPassword });
+      setSuccess(t("passwordChanged"));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("passwordChangeFailed"));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -777,6 +776,7 @@ function App() {
           <div className="avatar">AD</div><div style={{ minWidth: 0, flex: 1 }}><div className="profile-name">{t("admin")}</div><div className="profile-role">{t("adminSettings")}</div></div>
           <button className="icon-button" aria-label={t("signOut")} title={t("signOut")} onClick={signOut}><LogOut size={15} /></button>
         </div>
+        {t("footerNotice") && <footer className="app-footer">{t("footerNotice")}</footer>}
       </div>
     </aside>
     <main className="main-content">
@@ -802,6 +802,7 @@ function App() {
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} />}
         {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} busy={busy} onSave={saveLibrarySettings}
+          isAdmin={currentUser.role === "ADMIN"} onChangeLanguage={setLanguage} onChangePassword={changePassword}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
@@ -869,10 +870,10 @@ function App() {
   </div>;
 }
 
-function FieldInput({ label, name, value, onChange, type = "text", step, required, placeholder, minLength, autoComplete }: {
-  label: string; name: string; value: string; type?: string; step?: string; required?: boolean; placeholder?: string; minLength?: number; autoComplete?: string; onChange: (value: string) => void;
+function FieldInput({ label, name, value, onChange, type = "text", step, required, placeholder, minLength, maxLength, autoComplete }: {
+  label: string; name: string; value: string; type?: string; step?: string; required?: boolean; placeholder?: string; minLength?: number; maxLength?: number; autoComplete?: string; onChange: (value: string) => void;
 }) {
-  return <div className="field"><label htmlFor={`field-${name}`}>{label}</label><input id={`field-${name}`} type={type} step={step} value={value} required={required} minLength={minLength} autoComplete={autoComplete} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></div>;
+  return <div className="field"><label htmlFor={`field-${name}`}>{label}</label><input id={`field-${name}`} type={type} step={step} value={value} required={required} minLength={minLength} maxLength={maxLength} autoComplete={autoComplete} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></div>;
 }
 
 function FieldSelect({ label, value, onChange, options, disabled = false }: {
@@ -1058,6 +1059,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           </tbody></table></div> : <div className="empty-state">{t("noReservations")}</div>}
         </section>}
       </div>
+      {t("footerNotice") && <footer className="app-footer">{t("footerNotice")}</footer>}
     </main>
     {preview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
@@ -1256,17 +1258,26 @@ function Reports({ stats, loading, t }: { stats: Stats | null; loading: boolean;
   </>;
 }
 
-function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdit, onRemove }: {
+function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdit, onRemove, isAdmin, onChangeLanguage, onChangePassword }: {
   fields: FormField[]; loading: boolean; t: (key: string) => string; settings: LibrarySettings; busy: boolean;
   onSave: (settings: LibrarySettings) => Promise<void>; onAdd: () => void;
   onEdit: (field: FormField) => void; onRemove: (id: string) => void;
+  isAdmin: boolean; onChangeLanguage: (language: "en" | "am") => Promise<void>;
+  onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState(settings);
   const [translations, setTranslations] = useState<{ key: string; english: string; amharic: string }[]>([]);
   const [translationError, setTranslationError] = useState("");
+  const [footerNoticeEnglish, setFooterNoticeEnglish] = useState(settings.englishText.footerNotice || "");
+  const [footerNoticeAmharic, setFooterNoticeAmharic] = useState(settings.amharicText.footerNotice || "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   useEffect(() => {
     setDraft(settings);
+    setFooterNoticeEnglish(settings.englishText.footerNotice || "");
+    setFooterNoticeAmharic(settings.amharicText.footerNotice || "");
     const keys = new Set([...Object.keys(settings.englishText), ...Object.keys(settings.amharicText)]);
+    keys.delete("footerNotice");
     setTranslations([...keys].map((key) => ({
       key,
       english: settings.englishText[key] || "",
@@ -1278,7 +1289,7 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
     event.preventDefault();
     const englishText: Record<string, string> = {};
     const amharicText: Record<string, string> = {};
-    const keys = new Set<string>();
+    const keys = new Set<string>(["footerNotice"]);
     setTranslationError("");
     for (const row of translations) {
       const key = row.key.trim();
@@ -1295,7 +1306,17 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
       if (row.english) englishText[key] = row.english;
       if (row.amharic) amharicText[key] = row.amharic;
     }
+    if (footerNoticeEnglish) englishText.footerNotice = footerNoticeEnglish;
+    if (footerNoticeAmharic) amharicText.footerNotice = footerNoticeAmharic;
     await onSave({ ...draft, englishText, amharicText });
+  }
+
+  async function savePassword(event: FormEvent) {
+    event.preventDefault();
+    if (await onChangePassword(currentPassword, newPassword)) {
+      setCurrentPassword("");
+      setNewPassword("");
+    }
   }
 
   return <>
@@ -1306,6 +1327,9 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
         <div className="form-grid">
           <FieldInput label={t("libraryName")} name="library-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
           <FieldInput label={t("appTitle")} name="app-title" value={draft.appTitle} onChange={(value) => setDraft({ ...draft, appTitle: value })} required />
+          <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
+          <FieldInput label={`${t("footerNotice")} · ${t("english")}`} name="footer-notice-en" value={footerNoticeEnglish} onChange={setFooterNoticeEnglish} placeholder={t("footerNoticePlaceholder")} maxLength={500} />
+          <FieldInput label={`${t("footerNotice")} · ${t("amharic")}`} name="footer-notice-am" value={footerNoticeAmharic} onChange={setFooterNoticeAmharic} placeholder={t("footerNoticePlaceholder")} maxLength={500} />
         </div>
         <div className="settings-translation-heading"><div><div className="panel-title">{t("interfaceText")}</div><div className="panel-subtitle">{t("interfaceTextHelp")}</div></div>
           <button type="button" className="button" onClick={() => setTranslations([...translations, { key: "", english: "", amharic: "" }])}><Plus size={13} />{t("addTranslation")}</button>
@@ -1320,6 +1344,16 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
         <div className="settings-actions"><button className="button button-primary" disabled={busy}><Check size={13} />{t("saveSettings")}</button></div>
       </div>
     </form>
+    {isAdmin && <form className="panel settings-form" onSubmit={(event) => void savePassword(event)}>
+      <div className="panel-head"><div><div className="panel-title">{t("changePassword")}</div><div className="panel-subtitle">{t("changePasswordHelp")}</div></div><KeyRound size={16} color="#67957f" /></div>
+      <div className="settings-body">
+        <div className="form-grid">
+          <FieldInput label={t("currentPassword")} name="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} required />
+          <FieldInput label={t("newPassword")} name="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={setNewPassword} minLength={12} required />
+        </div>
+        <div className="settings-actions"><button className="button button-primary" disabled={busy}><Check size={13} />{t("savePassword")}</button></div>
+      </div>
+    </form>}
     <section className="panel settings-custom-fields">
       <div className="panel-head"><div><div className="panel-title">{t("customForms")}</div><div className="panel-subtitle">{t("configureFields")}</div></div><button className="button button-primary" onClick={onAdd}><Plus size={13} />{t("addField")}</button></div>
       {loading ? <div className="loading-state">{t("loading")}</div> : fields.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("fieldLabel")}</th><th>{t("fieldType")}</th><th>{t("entity")}</th><th>{t("requiredField")}</th><th>{t("actions")}</th></tr></thead><tbody>{fields.map((field) => <tr key={field.id || field.key}><td>{i18n.language === "am" ? field.labelAm || field.label : field.label}</td><td>{t(`field${field.type.charAt(0).toUpperCase()}${field.type.slice(1)}`)}</td><td>{field.entity || "—"}</td><td>{field.required ? t("yes") : t("no")}</td><td><button className="row-action" onClick={() => onEdit(field)} aria-label={t("edit")}><Settings size={14} /></button><button className="row-action" onClick={() => onRemove(field.id || field.key)} aria-label={t("delete")}><Trash2 size={14} /></button></td></tr>)}</tbody></table></div> : <div className="empty-state">{t("noRecords")}</div>}

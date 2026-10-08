@@ -1093,6 +1093,12 @@ function PortalMediaSection({ media, loading, onOpen, t }: {
 }
 
 function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loading: boolean; t: (key: string) => string; onNavigate: (page: Page) => void }) {
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12
+    ? "Good morning, Admin"
+    : currentHour < 18
+      ? "Good afternoon, Admin"
+      : "Good evening, Admin";
   const rawChartData = stats?.borrowingTrends?.length ? stats.borrowingTrends : monthNames.map((month) => ({ month, borrowed: 0, returned: 0 }));
   const chartData = localizeMonths(rawChartData);
   const categories = stats?.categories || [];
@@ -1103,7 +1109,7 @@ function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loa
     { label: t("overdue"), value: stats?.overdueBooks ?? "—", icon: Clock3, tint: "#f9ebea", color: "#bb625b" },
   ];
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("overview")}</div><h1 className="page-title">{t("welcome")}</h1><p className="page-description">{t("welcomeSub")}</p></div>
+    <div className="page-heading"><div><div className="eyebrow">{t("overview")}</div><h1 className="page-title">{greeting}</h1><p className="page-description">{t("welcomeSub")}</p></div>
       <div className="heading-actions"><button className="button" onClick={() => onNavigate("reports")}><CalendarDays size={13} /> {t("thisMonth")} <ChevronDown size={12} /></button><button className="button button-primary" onClick={() => onNavigate("circulation")}><Plus size={14} /> {t("issueBooks")}</button></div>
     </div>
     <div className="stats-grid">{cards.map(({ label, value, icon: Icon, tint, color }) => <div className="stat-card" key={label}>

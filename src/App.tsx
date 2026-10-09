@@ -56,6 +56,8 @@ const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; secti
   { page: "settings", icon: Settings, label: "settings", section: "main" },
 ];
 
+const mediaCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+
 const pageConfig: Record<CrudPage, {
   endpoint: string; title: string; description: string; icon: typeof BookOpen; fields: FormField[];
 }> = {
@@ -209,6 +211,7 @@ function App() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [mediaCategoryFilter, setMediaCategoryFilter] = useState("ALL");
   const [modal, setModal] = useState<"record" | "borrow" | "field" | "fine" | "account" | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [accountPatron, setAccountPatron] = useState<Row | null>(null);
@@ -316,11 +319,17 @@ function App() {
       const search = query.trim().toLowerCase();
       return active.filter((record) => ["title", "author", "borrowerName", "memberCode"].some((key) => toText(record[key]).toLowerCase().includes(search)));
     }
+    if (page === "media") {
+      return records.filter((record) =>
+        (statusFilter === "ALL" || toText(record.mediaType) === statusFilter) &&
+        (mediaCategoryFilter === "ALL" || toText(record.category) === mediaCategoryFilter),
+      );
+    }
     if (!isDataPage || page !== "books") return records;
     if (statusFilter === "AVAILABLE") return records.filter((record) => Number(record.availableCopies ?? record.copies) > 0);
     if (statusFilter === "BORROWED") return records.filter((record) => Number(record.availableCopies ?? 0) < Number(record.copies ?? 0));
     return records;
-  }, [records, page, isDataPage, statusFilter, query]);
+  }, [records, page, isDataPage, statusFilter, mediaCategoryFilter, query]);
 
   if (!token) return <Login libraryName={librarySettings.libraryName} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onLogin={(value, account) => { setToken(value); setCurrentUser(account); }} />;
   if (sessionLoading || !currentUser) return <div className="loading-state">{t("loading")}</div>;
@@ -393,9 +402,13 @@ function App() {
   }
 
   async function deleteRecord(record: Row) {
-    if (page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations" || !window.confirm(`Delete "${toText(record.title || record.name)}"?`)) return;
+    if (page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations") return;
+    if (page === "media") {
+      if (!window.confirm("Are you sure you want to delete this media file?")) return;
+    } else if (!window.confirm(`Delete "${toText(record.title || record.name)}"?`)) return;
     try {
       await api.delete(`${pageConfig[page].endpoint.split("?")[0]}/${record.id}`);
+      if (page === "media") setRecords((current) => current.filter((item) => item.id !== record.id));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete record.");
@@ -729,13 +742,14 @@ function App() {
     }
   }
 
-  async function uploadMedia(event: ChangeEvent<HTMLInputElement>) {
+  async function uploadMedia(event: ChangeEvent<HTMLInputElement>, category: string) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     const data = new FormData();
     data.append("file", file);
     data.append("title", file.name.replace(/\.[^.]+$/, ""));
+    data.append("category", category);
     try {
       await request("/media/upload", { method: "POST", body: data });
       await load();
@@ -753,7 +767,7 @@ function App() {
       <nav className="nav-list">
         {navItems.filter((item) => item.section === "main" && (item.page !== "settings" || currentUser.role === "ADMIN")).map((item) => {
           const Icon = item.icon;
-          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); }}>
+          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
             <Icon size={15} strokeWidth={1.8} />{t(item.label)}
           </button>;
         })}
@@ -762,7 +776,7 @@ function App() {
       <nav className="nav-list">
         {navItems.filter((item) => item.section === "manage").map((item) => {
           const Icon = item.icon;
-          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); }}>
+          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
             <Icon size={15} strokeWidth={1.8} />{t(item.label)}
             {item.page === "circulation" && stats?.overdueBooks ? <span className="nav-count">{stats.overdueBooks}</span> : null}
           </button>;
@@ -806,6 +820,7 @@ function App() {
           onRemove={removeCustomField} />}
         {page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
           page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+          mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
           onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia}
@@ -1086,7 +1101,7 @@ function PortalMediaSection({ media, loading, onOpen, t }: {
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
     {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className="portal-media-grid">{media.map((item) => <article className="portal-media-item" key={item.id}>
       <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : <FileAudio size={17} />}</div>
-      <div className="portal-media-info"><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small></div>
+      <div className="portal-media-info"><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
       <button className="button" onClick={() => void onOpen(item)}>{t("previewMedia")}</button>
     </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}
   </section>;
@@ -1179,11 +1194,12 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
   </>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, busy, t }: {
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, busy, t }: {
   page: Exclude<Page, "dashboard" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
-  statusFilter: string; setStatusFilter: (value: string) => void; onCreate: () => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
+  statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
+  onCreate: () => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
   onReturn: (record: Row) => void; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
-  onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onPreview: (record: Row) => void;
+  onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
   selectedIds: string[]; onToggleSelected: (id: string) => void; onDeleteSelected: () => void; onReturnSelected: () => void; busy: boolean; t: (key: string) => string;
 }) {
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
@@ -1193,6 +1209,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const isMedia = page === "media";
   const isInventory = page === "inventory";
   const isPeople = page === "students" || page === "staff";
+  const [uploadCategory, setUploadCategory] = useState("Other");
   const headers = isCirculation || isReturnPage
     ? [["title", "title"], ["borrowerName", "borrower"], ["memberCode", "id"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
@@ -1200,13 +1217,16 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
       : isInventory
         ? [["name", "asset"], ["category", "category"], ["quantity", "quantity"], ["location", "location"], ["condition", "condition"]]
         : isMedia
-          ? [["title", "title"], ["mediaType", "type"], ["fileName", "file"], ["createdAt", "date"]]
+          ? [["title", "title"], ["mediaType", "type"], ["category", "category"], ["fileName", "file"], ["createdAt", "date"]]
           : [["title", "title"], ["author", "author"], ["category", "category"], ["isbn", "isbn"], ["availableCopies", "available"]];
   const searchPlaceholder = page === "books" ? t("searchBooks") : page === "students" ? t("searchStudents") : t("search");
 
   return <>
     <div className="page-heading"><div><div className="eyebrow">{t("appName")} · {t("adminSettings")}</div><h1 className="page-title">{t(config.title)}</h1>{config.description && <p className="page-description">{t(config.description)}</p>}</div>
-      <div className="heading-actions">{isMedia ? <label className="button button-primary"><Plus size={13} />{t("uploadMedia")}<input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={onUpload} /></label> : isCirculation ? <button className="button button-primary" onClick={onCreate}><Plus size={13} />{t("issueBooks")}</button> : isReturnPage ? <button className="button" onClick={onScanReturn}><Camera size={13} />{t("scanToReturn")}</button> : <button className="button button-primary" onClick={onCreate}><Plus size={13} />{page === "books" ? t("addBook") : page === "students" ? t("addStudent") : t("addRecord")}</button>}</div>
+      <div className="heading-actions">{isMedia ? <>
+        <label className="media-upload-category"><span>{t("category")}</span><select aria-label={t("category")} value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+        <label className="button button-primary"><Plus size={13} />{t("uploadMedia")}<input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={(event) => onUpload(event, uploadCategory)} /></label>
+      </> : isCirculation ? <button className="button button-primary" onClick={onCreate}><Plus size={13} />{t("issueBooks")}</button> : isReturnPage ? <button className="button" onClick={onScanReturn}><Camera size={13} />{t("scanToReturn")}</button> : <button className="button button-primary" onClick={onCreate}><Plus size={13} />{page === "books" ? t("addBook") : page === "students" ? t("addStudent") : t("addRecord")}</button>}</div>
     </div>
     <section className="panel">
       <div className="toolbar">
@@ -1215,13 +1235,22 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {(isCirculation || page === "books") && <select aria-label={t("filter")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="ALL">{t("all")}</option>{isCirculation ? <><option value="ACTIVE">{t("activeLoans")}</option><option value="OVERDUE">{t("overdue")}</option><option value="RETURNED">{t("history")}</option></> : <><option value="AVAILABLE">{t("available")}</option><option value="BORROWED">{t("borrowedStatus")}</option></>}
           </select>}
+          {isMedia && <>
+            <select aria-label={t("filterByType")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="ALL">{t("allTypes")}</option><option value="PDF">PDF</option><option value="AUDIO">{t("audio")}</option><option value="VIDEO">{t("video")}</option>
+              {[...new Set(records.map((record) => toText(record.mediaType)))].filter((type) => !["PDF", "AUDIO", "VIDEO"].includes(type)).map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <select aria-label={t("filterByCategory")} className="select-control" value={mediaCategoryFilter} onChange={(event) => setMediaCategoryFilter(event.target.value)}>
+              <option value="ALL">{t("allCategories")}</option>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </>}
         </div>
         <div className="toolbar-group">
           {isReturnPage && selectedIds.length > 0 && <button className="button button-primary" disabled={busy} onClick={onReturnSelected}><RotateCcw size={12} />{t("returnSelected")} ({selectedIds.length})</button>}
           {isPeople && selectedIds.length > 0 && <button className="button button-danger" onClick={onDeleteSelected}><Trash2 size={12} />{t("deleteSelected")} ({selectedIds.length})</button>}
           {!isCirculation && !isReturnPage && !isMedia && <label className="button"><Download size={12} />{t("import")}<input type="file" accept=".xlsx,.docx" hidden onChange={onImport} /></label>}
           {!isCirculation && !isReturnPage && !isMedia && <div style={{ display: "flex", gap: 5 }}><button className="button" title="Export Excel" onClick={() => onExport("xlsx")}><ArrowDownToLine size={12} /><span className="hide-mobile">XLSX</span></button><button className="button" title="Export Word" onClick={() => onExport("docx")}><FileText size={12} /><span className="hide-mobile">DOCX</span></button></div>}
-          <button className="button" onClick={() => setStatusFilter("ALL")}><SlidersHorizontal size={12} />{t("filter")}</button>
+          <button className="button" onClick={() => { setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><SlidersHorizontal size={12} />{t("filter")}</button>
         </div>
       </div>
       <div className="table-wrap"><table className="data-table"><thead><tr>
@@ -1238,8 +1267,8 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? `${Number(record.fineRemaining).toFixed(2)} ${t("ethiopianBirr")}` : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => onReturn(record)}><Check size={14} /></button>}{isCirculation && Number(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <button className="row-action" title={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
+          {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? `${Number(record.fineRemaining).toFixed(2)} ${t("ethiopianBirr")}` : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => onReturn(record)}><Check size={14} /></button>}{isCirculation && Number(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : t("appName")}</span></div>

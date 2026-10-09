@@ -32,6 +32,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Admin-managed additional fields for books, patrons, and inventory, stored as serialized JSON text separately from typed core fields; fines and asset values use PostgreSQL double-precision fields.
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
 - Protected, validated PDF/audio uploads and delivery; uploads are limited to PDF and common audio formats and 50 MB. XLSX/DOCX imports are capped at 5 MB and 5,000 rows.
+- Categorized digital resources (Textbooks, Reference, Fiction, Research Papers, Course Material, or Other), with media-type/category filters and staff deletion of both the media record and its uploaded file.
 - Camera-based QR/barcode scanning for checkout and returns (requires HTTPS or localhost and camera permission).
 - Daily overdue reminder emails with persisted per-book/per-day delivery records; configure SMTP to enable delivery.
 - Separate staff and student/teacher sign-in with distinct role tabs; members can use their member code or email and are restricted to their personal portal. Admins can set or reset a portal password while adding or editing a patron, or use the dedicated password action; member codes can be custom or auto-generated. Passwords are stored as hashes on linked portal accounts; there is no public account registration.
@@ -68,13 +69,16 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | GET, POST | `/api/inventory` | Browse and register assets |
 | PUT, DELETE | `/api/inventory/:id` | Update and remove assets |
 | GET | `/api/media` | List uploaded digital resources (staff and signed-in members) |
-| POST | `/api/media/upload` | Upload a PDF or audio resource |
+| POST | `/api/media/upload` | Upload a PDF or audio resource with an optional category |
+| DELETE | `/api/media/:id` | Delete a media resource and its stored file (staff only) |
 | GET | `/api/media/:id/file` | Authenticated media file delivery |
 | GET, POST | `/api/custom-fields` | Read fields or (admin only) add fields |
 | DELETE | `/api/custom-fields/:id` | Remove a field (admin only) |
 | GET | `/api/audit-logs` | Read audit history (admin only) |
 
 `npm run db:reset` drops all data in the configured PostgreSQL database and recreates the schema; use it only when you intend to reset the database. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `EMAIL_FROM` in `.env` to enable daily overdue reminders; reminders are skipped with an explicit warning if SMTP is not configured. The client accepts `VITE_API_URL` to point at a deployed API. Configure `CLIENT_ORIGIN`, `UPLOAD_DIR`, and the database and signing secrets for the deployment environment. Store uploaded media on persistent private storage in production and back it up with the database. The browser-only document and spreadsheet parsers are build dependencies; the production API can be installed with `npm ci --omit=dev` after building the client and server.
+
+Existing databases must apply the `MediaAsset.category` schema addition before running the updated API. For this project’s local setup, run `npm run db:generate` followed by `npm run db:push`; migration-based deployments can apply the included migration with Prisma Migrate.
 
 ## Notes for production deployment
 

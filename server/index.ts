@@ -816,8 +816,14 @@ const upload = multer({
 app.get("/api/media", asyncRoute(async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
   res.json(await prisma.mediaAsset.findMany({
-    where: search ? { title: { contains: search } } : {},
-    select: { id: true, title: true, author: true, mediaType: true, fileName: true, mimeType: true, fileSize: true, createdAt: true },
+    where: search ? { OR: [
+      { title: { contains: search, mode: "insensitive" } },
+      { author: { contains: search, mode: "insensitive" } },
+      { fileName: { contains: search, mode: "insensitive" } },
+      { mediaType: { contains: search, mode: "insensitive" } },
+      { category: { contains: search, mode: "insensitive" } },
+    ] } : {},
+    select: { id: true, title: true, author: true, mediaType: true, category: true, fileName: true, mimeType: true, fileSize: true, createdAt: true },
     orderBy: { createdAt: "desc" }, take: 500,
   }));
 }));
@@ -838,14 +844,34 @@ app.post("/api/media/upload", upload.single("file"), asyncRoute(async (req, res)
     await unlink(req.file.path);
     throw new ApiError(400, "The uploaded file is not a supported audio file.");
   }
+  const allowedCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+  const category = typeof req.body.category === "string" ? req.body.category.trim() : "";
+  if (category && !allowedCategories.includes(category)) {
+    await unlink(req.file.path);
+    throw new ApiError(400, "Choose a valid media category.");
+  }
   const media = await prisma.mediaAsset.create({ data: {
     title: optionalText(req.body.title) || req.file.originalname,
     mediaType: extension === ".pdf" ? "PDF" : "AUDIO",
+    category: category || "Other",
     fileName: path.basename(req.file.originalname), mimeType: req.file.mimetype,
     filePath: req.file.filename, fileSize: req.file.size,
   } });
   await audit(req, "UPLOAD", "MEDIA", media.id);
   res.status(201).json({ ...media, url: `/api/media/${media.id}/file` });
+}));
+
+app.delete("/api/media/:id", requireStaff, asyncRoute(async (req, res) => {
+  const media = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
+  if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
+  await prisma.mediaAsset.delete({ where: { id: media.id } });
+  try {
+    await unlink(path.resolve(uploadDirectory, path.basename(media.filePath)));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  await audit(req, "DELETE", "MEDIA", media.id);
+  res.status(204).end();
 }));
 
 app.get("/api/media/:id/file", asyncRoute(async (req, res) => {

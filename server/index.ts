@@ -512,6 +512,50 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     status === "ACTIVE" || status === "OVERDUE" ? items.filter((item) => item.status !== "RETURNED") : items);
 }));
 
+const clearResolvedBorrowings = asyncRoute(async (req, res) => {
+  const deletedCount = await prisma.$transaction(async (transaction) => {
+    const candidates = await transaction.loanItem.findMany({
+      where: { returnedAt: { not: null }, fine: { lte: 0 }, payments: { none: {} } },
+      select: { id: true, loanId: true },
+    });
+    if (!candidates.length) return 0;
+    await transaction.loanItem.deleteMany({ where: { id: { in: candidates.map((item) => item.id) } } });
+    await transaction.loan.deleteMany({
+      where: { id: { in: [...new Set(candidates.map((item) => item.loanId))] }, loanItems: { none: {} } },
+    });
+    return candidates.length;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  await audit(req, "CLEAR_HISTORY", "LOAN_ITEM", undefined, { deletedCount });
+  res.json({ deletedCount });
+});
+
+app.delete("/api/borrowings/clear", requireStaff, clearResolvedBorrowings);
+app.delete("/api/loans/clear", requireStaff, clearResolvedBorrowings);
+
+const deleteResolvedBorrowing = asyncRoute(async (req, res) => {
+  const item = await prisma.$transaction(async (transaction) => {
+    const current = await transaction.loanItem.findUnique({
+      where: { id: req.params.id },
+      include: { payments: { select: { id: true } } },
+    });
+    if (!current) throw new ApiError(404, "Borrowing record not found.");
+    if (!current.returnedAt) throw new ApiError(409, "Active borrowing records cannot be deleted.");
+    if (Number(current.fine) > 0 || current.payments.length) {
+      throw new ApiError(409, "Records with outstanding fines or payment history cannot be deleted.");
+    }
+    await transaction.loanItem.delete({ where: { id: current.id } });
+    if (!(await transaction.loanItem.count({ where: { loanId: current.loanId } }))) {
+      await transaction.loan.delete({ where: { id: current.loanId } });
+    }
+    return current;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  await audit(req, "DELETE", "LOAN_ITEM", item.id, { loanId: item.loanId });
+  res.status(204).end();
+});
+
+app.delete("/api/borrowings/:id", requireStaff, deleteResolvedBorrowing);
+app.delete("/api/loans/items/:id", requireStaff, deleteResolvedBorrowing);
+
 app.get("/api/portal/loans", asyncRoute(async (req, res) => {
   const patronId = req.user?.patronId;
   if (!patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }

@@ -1,6 +1,6 @@
 export type ApiRecord = Record<string, unknown> & { id: string };
 
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000/api").replace(/\/+$/, "");
+const API_BASE = (import.meta.env.VITE_API_URL?.trim() || "https://library-backend-c7zn.onrender.com/api").replace(/\/+$/, "");
 
 async function fetchApi(path: string, options: RequestInit): Promise<Response> {
   const url = `${API_BASE}${path}`;

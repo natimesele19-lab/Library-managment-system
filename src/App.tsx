@@ -500,6 +500,36 @@ function App() {
     }
   }
 
+  async function deleteReservation(reservation: Row) {
+    if (!window.confirm("Are you sure you want to delete this reservation?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.delete(`/reservations/${reservation.id}`);
+      setRecords((current) => current.filter((record) => record.id !== reservation.id));
+      setSuccess(t("reservationDeleted"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("reservationFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearReservationHistory() {
+    if (!window.confirm("Are you sure you want to clear reservation history?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.delete<{ deletedCount: number }>("/reservations/clear");
+      setRecords((current) => current.filter((record) => record.status === "REQUESTED" || record.status === "RESERVED"));
+      setSuccess(`${result.deletedCount} ${t("reservationHistoryCleared")}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("reservationFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveLibrarySettings(next: LibrarySettings) {
     setBusy(true);
     setError("");
@@ -854,7 +884,8 @@ function App() {
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} t={t} />}
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} t={t}
-          onUpdate={(reservation, status) => void updateReservation(reservation, status)} />}
+          onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
+          onClearHistory={() => void clearReservationHistory()} />}
         {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} busy={busy} onSave={saveLibrarySettings}
           onChangeLanguage={setLanguage} onChangePassword={changePassword}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
@@ -1229,9 +1260,10 @@ function Status({ value, t }: { value: string; t: (key: string) => string }) {
   return <span className={`status-pill status-${key}`}>{localized}</span>;
 }
 
-function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate }: {
+function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate, onDelete, onClearHistory }: {
   records: StaffReservation[]; loading: boolean; query: string; setQuery: (value: string) => void; busy: boolean;
   t: (key: string) => string; onUpdate: (reservation: Row, status: "RESERVED" | "FULFILLED" | "CANCELLED") => void;
+  onDelete: (reservation: Row) => void; onClearHistory: () => void;
 }) {
   const search = query.trim().toLowerCase();
   const visible = records.filter((reservation) => !search ||
@@ -1241,6 +1273,7 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
     <section className="panel">
       <div className="toolbar"><div className="toolbar-group" style={{ flex: 1 }}><label className="table-search"><Search size={14} /><input aria-label={t("search")} placeholder={t("searchReservations")} value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
         <span className="reservation-count">{records.filter((item) => item.status === "REQUESTED" || item.status === "RESERVED").length} {t("activeReservations")}</span>
+        <button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button>
       </div>
       <div className="table-wrap"><table className="data-table reservation-table"><thead><tr><th>{t("patron")}</th><th>{t("title")}</th><th>{t("requestDate")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
         {loading ? <tr><td colSpan={5}><div className="loading-state">{t("loading")}</div></td></tr> : visible.length ? visible.map((reservation) => {
@@ -1250,6 +1283,7 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
               {reservation.status === "REQUESTED" && <button className="button" disabled={busy} onClick={() => onUpdate(reservation, "RESERVED")}>{t("approveReservation")}</button>}
               {active && <button className="button button-primary" disabled={busy} onClick={() => onUpdate(reservation, "FULFILLED")}>{t("approveAndIssue")}</button>}
               {active && <button className="button button-danger" disabled={busy} onClick={() => onUpdate(reservation, "CANCELLED")}>{t("cancelReservation")}</button>}
+              <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDelete(reservation)}><Trash2 size={14} /></button>
             </div></td></tr>;
         }) : <tr><td colSpan={5}><div className="empty-state">{query.trim() ? t("noMatchingReservations") : t("noReservations")}</div></td></tr>}
       </tbody></table></div>

@@ -635,6 +635,25 @@ app.get("/api/reservations", requireStaff, asyncRoute(async (_req, res) => {
   }));
 }));
 
+app.delete("/api/reservations/clear", requireStaff, asyncRoute(async (req, res) => {
+  const result = await prisma.bookReservation.deleteMany({
+    where: { status: { in: ["FULFILLED", "CANCELLED"] } },
+  });
+  await audit(req, "CLEAR_HISTORY", "BOOK_RESERVATION", undefined, { deletedCount: result.count });
+  res.json({ deletedCount: result.count });
+}));
+
+app.delete("/api/reservations/:id", requireStaff, asyncRoute(async (req, res) => {
+  const reservation = await prisma.bookReservation.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, status: true },
+  });
+  if (!reservation) { res.status(404).json({ error: "Reservation not found." }); return; }
+  await prisma.bookReservation.delete({ where: { id: reservation.id } });
+  await audit(req, "DELETE", "BOOK_RESERVATION", reservation.id, { status: reservation.status });
+  res.status(204).end();
+}));
+
 app.put("/api/reservations/:id", requireStaff, asyncRoute(async (req, res) => {
   const allowedStatuses = ["RESERVED", "FULFILLED", "CANCELLED"] as const;
   const status = typeof req.body.status === "string"

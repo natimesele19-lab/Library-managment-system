@@ -1,6 +1,7 @@
 export type ApiRecord = Record<string, unknown> & { id: string };
 
-const API_BASE = (import.meta.env.VITE_API_URL?.trim() || "https://library-backend-c7zn.onrender.com/api").replace(/\/+$/, "");
+const configuredApiUrl = (import.meta.env.VITE_API_URL?.trim() || "https://library-backend-c7zn.onrender.com").replace(/\/+$/, "");
+const API_BASE = /\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`;
 
 async function fetchApi(path: string, options: RequestInit): Promise<Response> {
   const url = `${API_BASE}${path}`;

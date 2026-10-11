@@ -104,6 +104,7 @@ model Loan {
   id          String     @id @default(cuid())
   patronId    String
   patron      Patron     @relation(fields: [patronId], references: [id], onDelete: Restrict)
+  borrowerType PatronType @default(STUDENT)
   issuedAt    DateTime   @default(now())
   dueDate     DateTime
   status      LoanStatus @default(ACTIVE)
@@ -111,6 +112,7 @@ model Loan {
   loanItems   LoanItem[]
 
   @@index([patronId, status])
+  @@index([borrowerType, status])
   @@index([status, dueDate])
 }
 

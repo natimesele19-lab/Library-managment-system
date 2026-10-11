@@ -282,7 +282,7 @@ function App() {
         const loans = await api.get<Row[]>(`/loans?status=${encodeURIComponent(loanStatusFilter)}&type=${patronType}`);
         if (isCurrentLoad()) setRecords(loans);
       } else if (page === "returns") {
-        const loans = await api.get<Row[]>("/loans?status=ACTIVE");
+        const loans = await api.get<Row[]>("/loans?status=ACTIVE&type=ALL");
         if (isCurrentLoad()) setRecords(loans);
       } else if (page === "reservations") {
         const reservations = await api.get<Row[]>("/reservations");

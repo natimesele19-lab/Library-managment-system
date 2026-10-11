@@ -502,6 +502,12 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     res.status(400).json({ error: "Invalid patron type filter." });
     return;
   }
+  const patronId = req.query.patronId === undefined ? undefined :
+    typeof req.query.patronId === "string" ? req.query.patronId.trim() : "";
+  if (req.query.patronId !== undefined && (!patronId || patronId.length > 128)) {
+    res.status(400).json({ error: "A valid patron ID is required." });
+    return;
+  }
   const patronType: PatronType | undefined = typeFilter === "ALL" ? undefined : typeFilter;
   const borrowerWhere = patronType ? {
     borrowerType: patronType,
@@ -520,6 +526,7 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
   const loans = await prisma.loan.findMany({
     where: {
       ...borrowerWhere,
+      ...(patronId ? { patronId } : {}),
       ...(status === "OVERDUE" ? { status: "ACTIVE", dueDate: { lt: today } } :
         status === "ACTIVE" ? { status: "ACTIVE" } : {}),
     },

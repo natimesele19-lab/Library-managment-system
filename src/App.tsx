@@ -5,7 +5,7 @@ import {
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
   Clock3, Download, FileAudio, FileText, GraduationCap, Languages, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Plus, Search,
-  RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X,
+  QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip,
@@ -15,12 +15,15 @@ import { api, download, request, type ApiRecord } from "./api";
 import i18n from "./i18n";
 import { useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
+import { BorrowerLookup } from "./BorrowerLookup";
+import { IDCard, type IDCardPatron } from "./IDCard";
 
-type Page = "dashboard" | "books" | "students" | "staff" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
-type CrudPage = Exclude<Page, "dashboard" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
+type Page = "dashboard" | "books" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
+type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
 const isCrudPage = (page: Page): page is CrudPage =>
   page === "books" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
+type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; active?: boolean };
 type Stats = {
   totalBooks: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
   borrowersThisMonth: number; finesCollected: number;
@@ -49,6 +52,7 @@ const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; secti
   { page: "books", icon: BookOpen, label: "books", section: "manage" },
   { page: "students", icon: GraduationCap, label: "students", section: "manage" },
   { page: "staff", icon: Users, label: "staff", section: "manage" },
+  { page: "idCards", icon: QrCode, label: "idCards", section: "manage" },
   { page: "circulation", icon: ArrowUpFromLine, label: "borrowBooks", section: "manage" },
   { page: "teacherBorrowing", icon: BookOpen, label: "teacherBorrowing", section: "manage" },
   { page: "returns", icon: RotateCcw, label: "returnBooks", section: "manage" },
@@ -181,21 +185,62 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
     }
   }
 
-  return <div className="login-wrap">
-    <form className="login-card" onSubmit={submit}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Brand libraryName={libraryName} /><div className="toolbar-group"><ThemeButton darkMode={darkMode} onToggle={onToggleTheme} /><button type="button" className="lang-button" onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); }}><Languages size={13} />{i18n.language === "en" ? t("amharic") : t("english")}</button></div></div>
-      <h1 className="page-title">{t("signIn")}</h1>
-      <p className="page-description">{t(mode === "member" ? "memberSignInHelp" : "signInHelp")}</p>
-      <div className="login-modes" role="tablist" aria-label={t("signInAs")}>
-        <button type="button" role="tab" aria-selected={mode === "staff"} className={`login-mode ${mode === "staff" ? "active" : ""}`} onClick={() => { setMode("staff"); setIdentifier(""); setError(""); }}>{t("staffLogin")}</button>
-        <button type="button" role="tab" aria-selected={mode === "member"} className={`login-mode ${mode === "member" ? "active" : ""}`} onClick={() => { setMode("member"); setIdentifier(""); setError(""); }}>{t("memberLogin")}</button>
-      </div>
-      <div className="field" style={{ marginBottom: 13 }}><label htmlFor="login-identifier">{t(mode === "member" ? "memberCodeOrEmail" : "emailAddress")}</label><input id="login-identifier" type={mode === "staff" ? "email" : "text"} autoComplete="username" placeholder={t(mode === "member" ? "memberCodeOrEmailPlaceholder" : "emailPlaceholder")} required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></div>
-      <div className="field"><label htmlFor="login-password">{t("password")}</label><input id="login-password" type="password" autoComplete="current-password" placeholder={t("passwordPlaceholder")} required value={password} onChange={(event) => setPassword(event.target.value)} /></div>
-      {error && <div className="login-error" role="alert">{error}</div>}
-      <button className="button button-primary" disabled={busy}>{busy ? t("loading") : t("signIn")}</button>
-    </form>
-  </div>;
+  return <main className="login-wrap">
+    <div className="login-layout">
+      <section className="login-hero" aria-labelledby="login-hero-title">
+        <div className="login-hero-brand"><Brand libraryName={libraryName} /><span className="login-hero-badge"><span />{t("loginEyebrow")}</span></div>
+        <div className="login-hero-copy">
+          <p className="login-kicker">{t("tagline")}</p>
+          <h1 id="login-hero-title">{t("loginHeroTitle")}</h1>
+          <p className="login-hero-description">{t("loginHeroDescription")}</p>
+        </div>
+        <div className="login-feature-grid">
+          <article className="login-feature">
+            <span className="login-feature-icon"><QrCode size={18} /></span>
+            <div><h2>{t("loginFeatureCards")}</h2><p>{t("loginFeatureCardsDetail")}</p></div>
+          </article>
+          <article className="login-feature">
+            <span className="login-feature-icon"><Search size={18} /></span>
+            <div><h2>{t("loginFeatureLookup")}</h2><p>{t("loginFeatureLookupDetail")}</p></div>
+          </article>
+          <article className="login-feature">
+            <span className="login-feature-icon"><BookOpen size={18} /></span>
+            <div><h2>{t("loginFeatureCatalog")}</h2><p>{t("loginFeatureCatalogDetail")}</p></div>
+          </article>
+          <article className="login-feature">
+            <span className="login-feature-icon"><CircleDollarSign size={18} /></span>
+            <div><h2>{t("loginFeatureCirculation")}</h2><p>{t("loginFeatureCirculationDetail")}</p></div>
+          </article>
+        </div>
+        <div className="login-hero-footer"><ShieldCheck size={16} /><span>{t("loginOperationsNote")}</span></div>
+        <div className="login-orb login-orb-one" aria-hidden="true" />
+        <div className="login-orb login-orb-two" aria-hidden="true" />
+      </section>
+
+      <section className="login-form-panel" aria-labelledby="login-form-title">
+        <div className="login-controls">
+          <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
+          <button type="button" className="lang-button" onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); }}>
+            <Languages size={14} />{i18n.language === "en" ? t("amharic") : t("english")}
+          </button>
+        </div>
+        <form className="login-card" onSubmit={submit}>
+          <div className="login-form-mark"><span><LibraryBig size={19} /></span><span>{t("signInAs")}</span></div>
+          <h2 id="login-form-title" className="page-title">{t("signIn")}</h2>
+          <p className="page-description">{t(mode === "member" ? "memberSignInHelp" : "signInHelp")}</p>
+          <div className="login-modes" role="tablist" aria-label={t("signInAs")}>
+            <button type="button" role="tab" aria-selected={mode === "staff"} className={`login-mode ${mode === "staff" ? "active" : ""}`} onClick={() => { setMode("staff"); setIdentifier(""); setError(""); }}>{t("staffLogin")}</button>
+            <button type="button" role="tab" aria-selected={mode === "member"} className={`login-mode ${mode === "member" ? "active" : ""}`} onClick={() => { setMode("member"); setIdentifier(""); setError(""); }}>{t("memberLogin")}</button>
+          </div>
+          <div className="field" style={{ marginBottom: 15 }}><label htmlFor="login-identifier">{t(mode === "member" ? "memberCodeOrEmail" : "emailAddress")}</label><input id="login-identifier" type={mode === "staff" ? "email" : "text"} autoComplete="username" placeholder={t(mode === "member" ? "memberCodeOrEmailPlaceholder" : "emailPlaceholder")} required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></div>
+          <div className="field"><label htmlFor="login-password">{t("password")}</label><input id="login-password" type="password" autoComplete="current-password" placeholder={t("passwordPlaceholder")} required value={password} onChange={(event) => setPassword(event.target.value)} /></div>
+          {error && <div className="login-error" role="alert">{error}</div>}
+          <button className="button button-primary" disabled={busy}>{busy ? t("loading") : t("signIn")}<span aria-hidden="true">→</span></button>
+          <p className="login-form-foot">{t("loginFormFooter")}</p>
+        </form>
+      </section>
+    </div>
+  </main>;
 }
 
 function App() {
@@ -273,6 +318,11 @@ function App() {
       if (page === "dashboard" || page === "reports") {
         const dashboard = await api.get<Stats>("/dashboard");
         if (isCurrentLoad()) setStats(dashboard);
+      } else if (page === "idCards") {
+        const params = new URLSearchParams();
+        if (query.trim()) params.set("search", query.trim());
+        const patrons = await api.get<Row[]>(`/patrons?${params.toString()}`);
+        if (isCurrentLoad()) setRecords(patrons);
       } else if (page === "settings") {
         const [fields, settings] = await Promise.all([
           api.get<FormField[]>("/custom-fields"),
@@ -312,7 +362,7 @@ function App() {
   }, [token, currentUser, page, query, loanStatusFilter, t]);
 
   useEffect(() => {
-    const debounce = ["books", "students", "staff", "inventory", "media"].includes(page) ? 250 : 0;
+    const debounce = ["books", "students", "staff", "idCards", "inventory", "media"].includes(page) ? 250 : 0;
     const timer = window.setTimeout(() => { void load(); }, debounce);
     return () => window.clearTimeout(timer);
   }, [page, load]);
@@ -329,7 +379,7 @@ function App() {
     return () => window.clearInterval(interval);
   }, [page, load]);
 
-  const isDataPage = page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
+  const isDataPage = page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
   const visibleRecords = useMemo(() => {
     if (page === "returns") {
       const active = records.filter((record) => toText(record.status) !== "RETURNED");
@@ -589,9 +639,9 @@ function App() {
     }
   }
 
-  async function openBorrowModal() {
+  async function openBorrowModal(patron?: Row) {
     setError("");
-    setForm({ dueDate: dateAfterDays(14), bookIds: "" });
+    setForm({ dueDate: dateAfterDays(14), bookIds: "", ...(patron ? { patronId: patron.id } : {}) });
     setModal("borrow");
     try {
       const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
@@ -859,7 +909,7 @@ function App() {
       </nav>
       <div className="nav-caption" style={{ marginTop: 18 }}>{t("adminSettings")}</div>
       <nav className="nav-list">
-        {navItems.filter((item) => item.section === "manage").map((item) => {
+        {navItems.filter((item) => item.section === "manage" && (item.page !== "idCards" || currentUser.role === "ADMIN")).map((item) => {
           const Icon = item.icon;
           return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
             <Icon size={15} strokeWidth={1.8} />{t(item.label)}
@@ -897,6 +947,7 @@ function App() {
         <div className="page-transition">
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} t={t} />}
+        {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} t={t} />}
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
           onClearHistory={() => void clearReservationHistory()} />}
@@ -905,14 +956,14 @@ function App() {
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
-        {page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
+        {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
           page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
           onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia}
           selectedIds={selectedIds} onToggleSelected={toggleSelected} onDeleteSelected={deleteSelected} onReturnSelected={returnSelectedLoans}
-          onDeleteBorrowing={deleteBorrowing} onClearHistory={clearBorrowingHistory} busy={busy} t={t}
+          onDeleteBorrowing={deleteBorrowing} onClearHistory={clearBorrowingHistory} onLookupError={setError} busy={busy} t={t}
         />}
         </div>
         </PageErrorBoundary>
@@ -1305,15 +1356,77 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
   </>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onClearHistory, busy, t }: {
-  page: Exclude<Page, "dashboard" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
+function IDCardsPage({ records, loading, query, setQuery, t }: {
+  records: Row[];
+  loading: boolean;
+  query: string;
+  setQuery: (value: string) => void;
+  t: (key: string) => string;
+}) {
+  const [printTarget, setPrintTarget] = useState<string | "all" | null>(null);
+  const patrons = records.filter((record): record is Row & { type: IDCardPatron["type"] } =>
+    record.type === "STUDENT" || record.type === "TEACHER");
+
+  useEffect(() => {
+    if (!printTarget) return;
+    const finishPrinting = () => setPrintTarget(null);
+    window.addEventListener("afterprint", finishPrinting);
+    const frame = window.requestAnimationFrame(() => window.print());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("afterprint", finishPrinting);
+    };
+  }, [printTarget]);
+
+  return <div className="id-cards-print-root" data-print-all={printTarget === "all" ? "true" : undefined}>
+    <div className="page-heading id-cards-toolbar">
+      <div>
+        <div className="eyebrow">{t("appName")} · {t("adminSettings")}</div>
+        <h1 className="page-title">{t("idCards")}</h1>
+        <p className="page-description">{t("idCardsDescription")}</p>
+      </div>
+      <div className="heading-actions">
+        <label className="table-search"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <button className="button button-primary" disabled={loading || patrons.length === 0} onClick={() => setPrintTarget("all")}>
+          <FileText size={13} />{t("printAllIdCards")}
+        </button>
+      </div>
+    </div>
+    {loading ? <div className="panel loading-state">{t("loading")}</div> : patrons.length ? <div className="id-card-list">
+      {patrons.map((record) => {
+        const patron: IDCardPatron = {
+          name: toText(record.name),
+          memberCode: toText(record.memberCode || record.id),
+          type: record.type,
+          email: toText(record.email),
+          grade: toText(record.grade) || null,
+          department: toText(record.department) || null,
+        };
+        return <article className="id-card-print-item" data-printing={printTarget === "all" || printTarget === record.id ? "true" : undefined} key={record.id}>
+          <IDCard patron={patron} t={t} />
+          <div className="id-card-item-actions">
+            <button className="button" onClick={() => setPrintTarget(record.id)}><FileText size={13} />{t("printIdCard")}</button>
+          </div>
+        </article>;
+      })}
+    </div> : <div className="panel empty-state">{t(query.trim() ? "noRecords" : "noIdCards")}</div>}
+  </div>;
+}
+
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onClearHistory, onLookupError, busy, t }: {
+  page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
-  onCreate: () => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
-  onReturn: (record: Row) => void; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
+  onCreate: (patron?: Row) => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
+  onReturn: (record: Row) => Promise<void>; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
   selectedIds: string[]; onToggleSelected: (id: string) => void; onDeleteSelected: () => void; onReturnSelected: () => void;
-  onDeleteBorrowing: (record: Row) => void; onClearHistory: () => void; busy: boolean; t: (key: string) => string;
+  onDeleteBorrowing: (record: Row) => void; onClearHistory: () => void; onLookupError: (message: string) => void; busy: boolean; t: (key: string) => string;
 }) {
+  const [patrons, setPatrons] = useState<BorrowerRow[]>([]);
+  const [selectedPatron, setSelectedPatron] = useState<BorrowerRow | null>(null);
+  const [patronLoans, setPatronLoans] = useState<Row[]>([]);
+  const [patronLoansLoading, setPatronLoansLoading] = useState(false);
+  const [idCardPatron, setIdCardPatron] = useState<IDCardPatron | null>(null);
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
     page === "teacherBorrowing" ? { title: "teacherBorrowing", description: "", icon: BookOpen } :
     page === "returns" ? { title: "returnBooks", description: "fineCalculated", icon: RotateCcw } : pageConfig[page];
@@ -1322,6 +1435,59 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const isMedia = page === "media";
   const isInventory = page === "inventory";
   const isPeople = page === "students" || page === "staff";
+  const isBorrowerSelectionPage = isCirculation || isReturnPage;
+
+  useEffect(() => {
+    setSelectedPatron(null);
+    setPatronLoans([]);
+  }, [page]);
+
+  useEffect(() => {
+    if (!isBorrowerSelectionPage) {
+      setSelectedPatron(null);
+      setPatronLoans([]);
+      return;
+    }
+    let cancelled = false;
+    const patronType = page === "circulation" ? "STUDENT" : page === "teacherBorrowing" ? "TEACHER" : "";
+    void api.get<BorrowerRow[]>(`/patrons${patronType ? `?type=${patronType}` : ""}`).then((result) => {
+      if (!cancelled) setPatrons(result.filter((patron) => patron.active !== false));
+    }).catch((cause: unknown) => {
+      if (!cancelled) onLookupError(cause instanceof Error ? cause.message : t("unableToLoadBorrowers"));
+    });
+    return () => { cancelled = true; };
+  }, [isBorrowerSelectionPage, page, onLookupError, t]);
+
+  useEffect(() => {
+    if (!isBorrowerSelectionPage || !selectedPatron) {
+      setPatronLoans([]);
+      return;
+    }
+    let cancelled = false;
+    setPatronLoansLoading(true);
+    const type = page === "circulation" ? "STUDENT" : page === "teacherBorrowing" ? "TEACHER" : "ALL";
+    const params = new URLSearchParams({ status: "ACTIVE", type, patronId: selectedPatron.id });
+    void api.get<Row[]>(`/loans?${params}`).then((result) => {
+      if (!cancelled) setPatronLoans(result);
+    }).catch((cause: unknown) => {
+      if (!cancelled) onLookupError(cause instanceof Error ? cause.message : t("unableToLoadBorrowerLoans"));
+    }).finally(() => {
+      if (!cancelled) setPatronLoansLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isBorrowerSelectionPage, page, selectedPatron, records, onLookupError, t]);
+
+  function showIdCard(record: Row) {
+    if (record.type !== "STUDENT" && record.type !== "TEACHER") return;
+    setIdCardPatron({
+      name: toText(record.name),
+      memberCode: toText(record.memberCode || record.id),
+      type: record.type,
+      email: toText(record.email),
+      grade: toText(record.grade) || null,
+      department: toText(record.department) || null,
+    });
+  }
   const [uploadCategory, setUploadCategory] = useState("Other");
   const headers = isCirculation || isReturnPage
     ? [["title", "title"], ["borrowerName", "borrower"], ["memberCode", "id"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
@@ -1339,7 +1505,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
       <div className="heading-actions">{isMedia ? <>
         <label className="media-upload-category"><span>{t("category")}</span><select aria-label={t("category")} value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
         <label className="button button-primary"><Plus size={13} />{t("uploadMedia")}<input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={(event) => onUpload(event, uploadCategory)} /></label>
-      </> : isCirculation ? <><button className="button button-primary" onClick={onCreate}><Plus size={13} />{t("issueBooks")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : isReturnPage ? <><button className="button" onClick={onScanReturn}><Camera size={13} />{t("scanToReturn")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : <button className="button button-primary" onClick={onCreate}><Plus size={13} />{page === "books" ? t("addBook") : page === "students" ? t("addStudent") : t("addRecord")}</button>}</div>
+      </> : isCirculation ? <><button className="button button-primary" onClick={() => onCreate()}><Plus size={13} />{t("issueBooks")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : isReturnPage ? <><button className="button" onClick={onScanReturn}><Camera size={13} />{t("scanToReturn")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : <button className="button button-primary" onClick={() => onCreate()}><Plus size={13} />{page === "books" ? t("addBook") : page === "students" ? t("addStudent") : t("addRecord")}</button>}</div>
     </div>
     <section className="panel">
       <div className="toolbar">
@@ -1366,6 +1532,25 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           <button className="button" onClick={() => { setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><SlidersHorizontal size={12} />{t("filter")}</button>
         </div>
       </div>
+      {isBorrowerSelectionPage && <>
+        <section className="panel borrower-identification">
+          <BorrowerLookup patrons={patrons} selected={selectedPatron} onSelect={setSelectedPatron}
+            onUnknownCode={() => onLookupError(t("borrowerCodeNotFound"))} t={t} />
+          {selectedPatron && <div className="borrower-summary">
+            <div><strong>{selectedPatron.name}</strong><span>{selectedPatron.memberCode} · {t(selectedPatron.type === "TEACHER" ? "teacherRole" : "studentRole")}</span></div>
+            {isCirculation && <button className="button button-primary" onClick={() => onCreate(selectedPatron)}><Plus size={13} />{t("issueToBorrower")}</button>}
+          </div>}
+          {selectedPatron && <div className="identified-loans">
+            <div className="panel-title">{t("activeLoansForBorrower")}</div>
+            {patronLoansLoading ? <div className="loading-state">{t("loading")}</div> : patronLoans.length ? <div className="identified-loan-list">
+              {patronLoans.map((loan) => <div className="identified-loan" key={toText(loan.loanItemId || loan.id)}>
+                <div><strong>{toText(loan.title)}</strong><small>{t("dueDate")}: {toText(loan.dueDate).slice(0, 10)} · <Status value={toText(loan.status)} t={t} /></small></div>
+                <button className="button" disabled={busy} onClick={async () => { await onReturn(loan); }}><RotateCcw size={12} />{t("returnBook")}</button>
+              </div>)}
+            </div> : <div className="empty-state borrower-empty">{t("noActiveLoansForBorrower")}</div>}
+          </div>}
+        </section>
+      </>}
       <div className="table-wrap"><table className="data-table"><thead><tr>
         {isPeople && <th><input type="checkbox" aria-label={t("selectAll")} checked={records.length > 0 && records.every((record) => selectedIds.includes(record.id))} onChange={(event) => {
           if (event.target.checked) records.forEach((record) => { if (!selectedIds.includes(record.id)) onToggleSelected(record.id); });
@@ -1381,11 +1566,18 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
           {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : t("appName")}</span></div>
     </section>
+    {idCardPatron && <div className="modal-backdrop id-card-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIdCardPatron(null); }}>
+      <div className="modal id-card-modal" role="dialog" aria-modal="true" aria-label={t("generateIdCard")}>
+        <div className="modal-head id-card-controls"><div className="modal-title">{t("generateIdCard")}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setIdCardPatron(null)}><X size={17} /></button></div>
+        <IDCard patron={idCardPatron} t={t} />
+        <div className="modal-actions id-card-controls"><button className="button" onClick={() => setIdCardPatron(null)}>{t("cancel")}</button><button className="button button-primary" onClick={() => window.print()}>{t("printIdCard")}</button></div>
+      </div>
+    </div>}
   </>;
 }
 

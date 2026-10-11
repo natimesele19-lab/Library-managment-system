@@ -503,11 +503,23 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     return;
   }
   const patronType: PatronType | undefined = typeFilter === "ALL" ? undefined : typeFilter;
+  const borrowerWhere = patronType ? {
+    borrowerType: patronType,
+    patron: {
+      is: {
+        type: patronType,
+        ...(patronType === "TEACHER" ? {
+          memberCode: { not: { startsWith: "STU" } },
+          id: { not: { startsWith: "STU" } },
+        } : {}),
+      },
+    },
+  } : {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const loans = await prisma.loan.findMany({
     where: {
-      ...(patronType ? { borrowerType: patronType } : {}),
+      ...borrowerWhere,
       ...(status === "OVERDUE" ? { status: "ACTIVE", dueDate: { lt: today } } :
         status === "ACTIVE" ? { status: "ACTIVE" } : {}),
     },

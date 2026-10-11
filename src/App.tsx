@@ -16,8 +16,10 @@ import i18n from "./i18n";
 import { useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
 
-type Page = "dashboard" | "books" | "students" | "staff" | "circulation" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
-type CrudPage = Exclude<Page, "dashboard" | "circulation" | "returns" | "reservations" | "reports" | "settings">;
+type Page = "dashboard" | "books" | "students" | "staff" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
+type CrudPage = Exclude<Page, "dashboard" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
+const isCrudPage = (page: Page): page is CrudPage =>
+  page === "books" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
 type Stats = {
   totalBooks: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
@@ -48,6 +50,7 @@ const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; secti
   { page: "students", icon: GraduationCap, label: "students", section: "manage" },
   { page: "staff", icon: Users, label: "staff", section: "manage" },
   { page: "circulation", icon: ArrowUpFromLine, label: "borrowBooks", section: "manage" },
+  { page: "teacherBorrowing", icon: BookOpen, label: "teacherBorrowing", section: "manage" },
   { page: "returns", icon: RotateCcw, label: "returnBooks", section: "manage" },
   { page: "reservations", icon: BookMarked, label: "reservationQueue", section: "manage" },
   { page: "inventory", icon: Package, label: "inventory", section: "manage" },
@@ -254,7 +257,7 @@ function App() {
     return () => { cancelled = true; };
   }, [token, currentUser]);
 
-  const loanStatusFilter = page === "circulation" ? statusFilter : "ALL";
+  const loanStatusFilter = page === "circulation" || page === "teacherBorrowing" ? statusFilter : "ALL";
   const load = useCallback(async () => {
     if (!token || !currentUser || currentUser.role === "MEMBER") return;
     const sequence = ++loadSequence.current;
@@ -274,8 +277,9 @@ function App() {
           setCustomFields(fields);
           setLibrarySettings(settings);
         }
-      } else if (page === "circulation") {
-        const loans = await api.get<Row[]>(`/loans?status=${encodeURIComponent(loanStatusFilter)}`);
+      } else if (page === "circulation" || page === "teacherBorrowing") {
+        const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
+        const loans = await api.get<Row[]>(`/loans?status=${encodeURIComponent(loanStatusFilter)}&type=${patronType}`);
         if (isCurrentLoad()) setRecords(loans);
       } else if (page === "returns") {
         const loans = await api.get<Row[]>("/loans?status=ACTIVE");
@@ -320,7 +324,7 @@ function App() {
     return () => window.clearInterval(interval);
   }, [page, load]);
 
-  const isDataPage = page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "reservations";
+  const isDataPage = page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
   const visibleRecords = useMemo(() => {
     if (page === "returns") {
       const active = records.filter((record) => toText(record.status) !== "RETURNED");
@@ -380,7 +384,7 @@ function App() {
 
   async function saveRecord(event: FormEvent) {
     event.preventDefault();
-    if (page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations") return;
+    if (!isCrudPage(page)) return;
     const config = pageConfig[page];
     setBusy(true);
     setError("");
@@ -412,7 +416,7 @@ function App() {
   }
 
   async function deleteRecord(record: Row) {
-    if (page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations") return;
+    if (!isCrudPage(page)) return;
     if (page === "media") {
       if (!window.confirm("Are you sure you want to delete this media file?")) return;
     } else if (!window.confirm(`Delete "${toText(record.title || record.name)}"?`)) return;
@@ -457,7 +461,8 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const result = await api.delete<{ deletedCount: number }>("/borrowings/clear");
+      const patronType = page === "teacherBorrowing" ? "TEACHER" : page === "circulation" ? "STUDENT" : undefined;
+      const result = await api.delete<{ deletedCount: number }>(`/borrowings/clear${patronType ? `?type=${patronType}` : ""}`);
       setSuccess(`${result.deletedCount} ${t("historyRecordsCleared")}`);
       setSelectedIds([]);
       await load();
@@ -473,7 +478,8 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await api.delete(`/borrowings/${record.loanItemId || record.id}`);
+      const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
+      await api.delete(`/borrowings/${record.loanItemId || record.id}?type=${patronType}`);
       setSuccess(t("recordDeleted"));
       await load();
     } catch (err) {
@@ -583,7 +589,8 @@ function App() {
     setForm({ dueDate: dateAfterDays(14), bookIds: "" });
     setModal("borrow");
     try {
-      const [people, books] = await Promise.all([api.get<Row[]>("/patrons"), api.get<Row[]>("/books")]);
+      const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
+      const [people, books] = await Promise.all([api.get<Row[]>(`/patrons?type=${patronType}`), api.get<Row[]>("/books")]);
       setBorrowers(people.filter((person) => person.active !== false));
       setAvailableBooks(books.filter((book) => Number(book.availableCopies) > 0));
     } catch (err) {
@@ -657,7 +664,7 @@ function App() {
   }
 
   async function deleteSelected() {
-    if (page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations" || !selectedIds.length || !window.confirm(`Delete ${selectedIds.length} selected records?`)) return;
+    if (!isCrudPage(page) || !selectedIds.length || !window.confirm(`Delete ${selectedIds.length} selected records?`)) return;
     setBusy(true);
     try {
       for (const id of selectedIds) await api.delete(`${pageConfig[page].endpoint.split("?")[0]}/${id}`);
@@ -706,9 +713,10 @@ function App() {
   }
 
   async function importFile(event: ChangeEvent<HTMLInputElement>) {
+    if (!isCrudPage(page)) return;
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || page === "dashboard" || page === "reports" || page === "settings" || page === "circulation" || page === "returns" || page === "reservations") return;
+    if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       setError(t("importFileLimit"));
       return;
@@ -799,6 +807,7 @@ function App() {
     try {
       await api.post("/loans", {
         patronId: form.patronId,
+        patronType: page === "teacherBorrowing" ? "TEACHER" : "STUDENT",
         bookIds: form.bookIds?.split(",").map((id) => id.trim()).filter(Boolean),
         dueDate: form.dueDate,
       });
@@ -894,7 +903,7 @@ function App() {
         {page !== "dashboard" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
           page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
-          onCreate={page === "circulation" ? openBorrowModal : startCreate}
+          onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
           onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia}
           selectedIds={selectedIds} onToggleSelected={toggleSelected} onDeleteSelected={deleteSelected} onReturnSelected={returnSelectedLoans}
@@ -941,7 +950,7 @@ function App() {
             <FieldSelect label={t("requiredField")} value={form.required || "false"} onChange={(value) => setForm({ ...form, required: value })} options={[["false", t("no")], ["true", t("yes")]]} />
           </div>
           <div className="modal-actions"><button type="button" className="button" onClick={() => setModal(null)}>{t("cancel")}</button><button className="button button-primary" disabled={busy}>{t("save")}</button></div>
-        </form> : isDataPage && page !== "circulation" && page !== "returns" && <form onSubmit={saveRecord}>
+        </form> : isCrudPage(page) && <form onSubmit={saveRecord}>
           <div className="form-grid">
             {[...pageConfig[page].fields, ...customFields.map((field) => ({ ...field, label: field.label }))].map((field) => (
               field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
@@ -1301,8 +1310,9 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   onDeleteBorrowing: (record: Row) => void; onClearHistory: () => void; busy: boolean; t: (key: string) => string;
 }) {
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
+    page === "teacherBorrowing" ? { title: "teacherBorrowing", description: "", icon: BookOpen } :
     page === "returns" ? { title: "returnBooks", description: "fineCalculated", icon: RotateCcw } : pageConfig[page];
-  const isCirculation = page === "circulation";
+  const isCirculation = page === "circulation" || page === "teacherBorrowing";
   const isReturnPage = page === "returns";
   const isMedia = page === "media";
   const isInventory = page === "inventory";

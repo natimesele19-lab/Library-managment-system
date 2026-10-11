@@ -492,11 +492,16 @@ app.delete("/api/patrons/:id", asyncRoute(async (req, res) => {
 app.get("/api/loans", asyncRoute(async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : "ALL";
   if (!["ALL", "ACTIVE", "OVERDUE", "RETURNED"].includes(status)) { res.status(400).json({ error: "Invalid loan status filter." }); return; }
+  const patronType = req.query.type === "STUDENT" || req.query.type === "TEACHER" ? req.query.type : undefined;
+  if (req.query.type !== undefined && !patronType) { res.status(400).json({ error: "Invalid patron type filter." }); return; }
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const loans = await prisma.loan.findMany({
-    where: status === "OVERDUE" ? { status: "ACTIVE", dueDate: { lt: today } } :
-      status === "ACTIVE" ? { status: "ACTIVE" } : {},
+    where: {
+      ...(patronType ? { patron: { type: patronType } } : {}),
+      ...(status === "OVERDUE" ? { status: "ACTIVE", dueDate: { lt: today } } :
+        status === "ACTIVE" ? { status: "ACTIVE" } : {}),
+    },
     include: { patron: { select: { name: true, memberCode: true } }, loanItems: { include: { book: { select: { title: true, author: true } }, payments: true } } },
     orderBy: { issuedAt: "desc" }, take: 500,
   });
@@ -513,9 +518,14 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
 }));
 
 const clearResolvedBorrowings = asyncRoute(async (req, res) => {
+  const patronType = req.query.type === "STUDENT" || req.query.type === "TEACHER" ? req.query.type : undefined;
+  if (req.query.type !== undefined && !patronType) { res.status(400).json({ error: "Invalid patron type filter." }); return; }
   const deletedCount = await prisma.$transaction(async (transaction) => {
     const candidates = await transaction.loanItem.findMany({
-      where: { returnedAt: { not: null }, fine: { lte: 0 }, payments: { none: {} } },
+      where: {
+        returnedAt: { not: null }, fine: { lte: 0 }, payments: { none: {} },
+        ...(patronType ? { loan: { patron: { type: patronType } } } : {}),
+      },
       select: { id: true, loanId: true },
     });
     if (!candidates.length) return 0;
@@ -533,9 +543,14 @@ app.delete("/api/borrowings/clear", requireStaff, clearResolvedBorrowings);
 app.delete("/api/loans/clear", requireStaff, clearResolvedBorrowings);
 
 const deleteResolvedBorrowing = asyncRoute(async (req, res) => {
+  const patronType = req.query.type === "STUDENT" || req.query.type === "TEACHER" ? req.query.type : undefined;
+  if (req.query.type !== undefined && !patronType) { res.status(400).json({ error: "Invalid patron type filter." }); return; }
   const item = await prisma.$transaction(async (transaction) => {
-    const current = await transaction.loanItem.findUnique({
-      where: { id: req.params.id },
+    const current = await transaction.loanItem.findFirst({
+      where: {
+        id: req.params.id,
+        ...(patronType ? { loan: { patron: { type: patronType } } } : {}),
+      },
       include: { payments: { select: { id: true } } },
     });
     if (!current) throw new ApiError(404, "Borrowing record not found.");
@@ -734,17 +749,22 @@ app.post("/api/notifications/overdue/run", requireAdmin, asyncRoute(async (_req,
 }));
 
 app.post("/api/loans", asyncRoute(async (req, res) => {
-  const { patronId, bookIds, dueDate } = req.body as { patronId?: string; bookIds?: string[]; dueDate?: string };
+  const { patronId, patronType, bookIds, dueDate } = req.body as { patronId?: string; patronType?: string; bookIds?: string[]; dueDate?: string };
   const earliestDueDate = new Date();
   earliestDueDate.setUTCHours(0, 0, 0, 0);
   if (!patronId || !Array.isArray(bookIds) || bookIds.length < 1 || bookIds.length > 20 || !dueDate || Number.isNaN(Date.parse(dueDate)) || Date.parse(dueDate) < earliestDueDate.getTime()) {
     res.status(400).json({ error: "A borrower, 1–20 books, and a valid due date are required." });
     return;
   }
+  if (patronType !== undefined && patronType !== "STUDENT" && patronType !== "TEACHER") {
+    res.status(400).json({ error: "Invalid patron type." });
+    return;
+  }
   if (new Set(bookIds).size !== bookIds.length) { res.status(400).json({ error: "A book may only be selected once per transaction." }); return; }
   const loan = await prisma.$transaction(async (transaction) => {
     const patron = await transaction.patron.findFirst({ where: { id: patronId, active: true } });
     if (!patron) throw new ApiError(404, "Active patron not found.");
+    if (patronType && patron.type !== patronType) throw new ApiError(409, `This borrowing is restricted to ${patronType.toLowerCase()} patrons.`);
     for (const bookId of bookIds) {
       const updated = await transaction.book.updateMany({ where: { id: bookId, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
       if (!updated.count) throw new ApiError(409, `Book ${bookId} is unavailable.`);

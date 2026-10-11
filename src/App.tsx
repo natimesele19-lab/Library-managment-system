@@ -125,6 +125,11 @@ const colors = ["#518970", "#92b49c", "#d2a66a", "#afc6b6", "#7896a1"];
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"];
 const amharicMonths = ["ጃን", "ፌብ", "ማር", "ኤፕ", "ሜይ", "ጁን", "ጁላይ", "ኦገስት", "ሴፕ", "ኦክቶ", "ኖቬ"];
 const toText = (value: unknown) => (value == null ? "" : String(value));
+const toFiniteNumber = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+const formatMoney = (value: unknown, currency: string) => `${toFiniteNumber(value).toFixed(2)} ${currency}`;
 const localizeMonths = <T extends { month: string },>(data: T[]) => data.map((item) => {
   const index = monthNames.indexOf(item.month);
   return { ...item, month: i18n.language === "am" && index >= 0 ? amharicMonths[index] : item.month };
@@ -445,9 +450,9 @@ function App() {
     setError("");
     try {
       const returned = await api.post<{ fine: number }[]>("/loans/return", { itemIds: selectedIds });
-      const totalFine = returned.reduce((total, item) => total + Number(item.fine), 0);
+      const totalFine = returned.reduce((total, item) => total + toFiniteNumber(item.fine), 0);
       setSelectedIds([]);
-      setSuccess(`${t("returnBatchSuccess")} ${t("fine")}: ${totalFine.toFixed(2)} ${t("ethiopianBirr")}.`);
+      setSuccess(`${t("returnBatchSuccess")} ${t("fine")}: ${formatMoney(totalFine, t("ethiopianBirr"))}.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to return selected books.");
@@ -565,7 +570,7 @@ function App() {
   }
 
   function collectFine(loan: Row) {
-    setForm({ loanItemId: loan.id, amount: toText(loan.fineRemaining) });
+    setForm({ loanItemId: loan.id, amount: toFiniteNumber(loan.fineRemaining).toFixed(2) });
     setModal("fine");
   }
 
@@ -1074,7 +1079,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const activeLoans = loans.filter((loan) => loan.status !== "RETURNED");
   const loanHistory = loans.filter((loan) => loan.status === "RETURNED");
   const activeReservations = reservations.filter((item) => item.status === "REQUESTED" || item.status === "RESERVED");
-  const currentFine = activeLoans.reduce((sum, loan) => sum + Number(loan.fineRemaining || 0), 0);
+  const currentFine = activeLoans.reduce((sum, loan) => sum + toFiniteNumber(loan.fineRemaining), 0);
 
   async function requestReservation(bookId: string) {
     setBusyReservation(bookId);
@@ -1140,7 +1145,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <div className="portal-stats-grid">
             <section className="panel portal-stat"><div className="stat-label">{t("activeLoans")}</div><strong>{loading.loans ? "…" : activeLoans.length}</strong></section>
             <section className="panel portal-stat"><div className="stat-label">{t("overdueBooks")}</div><strong>{loading.loans ? "…" : activeLoans.filter((loan) => loan.status === "OVERDUE").length}</strong></section>
-            <section className="panel portal-stat"><div className="stat-label">{t("fineBalance")}</div><strong>{loading.loans ? "…" : `${currentFine.toFixed(2)} ${t("ethiopianBirr")}`}</strong></section>
+            <section className="panel portal-stat"><div className="stat-label">{t("fineBalance")}</div><strong>{loading.loans ? "…" : formatMoney(currentFine, t("ethiopianBirr"))}</strong></section>
             <section className="panel portal-stat"><div className="stat-label">{t("borrowingHistory")}</div><strong>{loading.loans ? "…" : loanHistory.length}</strong></section>
           </div>
           <PortalLoanTable loans={activeLoans.slice(0, 5)} loading={loading.loans} emptyLabel={t("noActiveLoans")} t={t} />
@@ -1192,7 +1197,7 @@ function PortalLoanTable({ loans, loading, emptyLabel, history = false, t }: {
   return <section className="panel portal-loan-panel">
     <div className="panel-head"><div><div className="panel-title">{t(history ? "borrowingHistory" : "activeLoans")}</div><div className="panel-subtitle">{t(history ? "pastTransactions" : "myBorrowedBooks")}</div></div></div>
     {loading ? <div className="loading-state">{t("loading")}</div> : loans.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("title")}</th><th>{t("author")}</th><th>{t("issuedAt")}</th><th>{history ? t("returned") : t("dueDate")}</th><th>{t("status")}</th><th>{t("fineBalance")}</th></tr></thead><tbody>
-      {loans.map((loan) => <tr key={loan.id}><td>{toText(loan.title)}</td><td>{toText(loan.author)}</td><td>{toText(loan.issuedAt).slice(0, 10)}</td><td>{toText(history ? loan.returnedAt : loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td><td>{Number(loan.fineRemaining).toFixed(2)} {t("ethiopianBirr")}</td></tr>)}
+      {loans.map((loan) => <tr key={loan.id}><td>{toText(loan.title)}</td><td>{toText(loan.author)}</td><td>{toText(loan.issuedAt).slice(0, 10)}</td><td>{toText(history ? loan.returnedAt : loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td><td>{formatMoney(loan.fineRemaining, t("ethiopianBirr"))}</td></tr>)}
     </tbody></table></div> : <div className="empty-state">{emptyLabel}</div>}
   </section>;
 }
@@ -1375,8 +1380,8 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? `${Number(record.fineRemaining).toFixed(2)} ${t("ethiopianBirr")}` : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && Number(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
+          {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : t("appName")}</span></div>
@@ -1388,7 +1393,7 @@ function Reports({ stats, loading, t }: { stats: Stats | null; loading: boolean;
   const values = [
     { title: "booksInCollection", value: stats?.totalBooks ?? "—", icon: BookOpen, note: t("totalBooks") },
     { title: "borrowersThisMonth", value: stats?.borrowersThisMonth ?? "—", icon: Users, note: t("borrowersThisMonth") },
-    { title: "finesCollected", value: `${(stats?.finesCollected || 0).toFixed(2)} ${t("ethiopianBirr")}`, icon: CircleDollarSign, note: t("fineCollection") },
+    { title: "finesCollected", value: formatMoney(stats?.finesCollected, t("ethiopianBirr")), icon: CircleDollarSign, note: t("fineCollection") },
     { title: "overdueRate", value: stats?.totalBooks ? `${Math.round((stats.overdueBooks / stats.totalBooks) * 100)}%` : "—", icon: Activity, note: t("overdue") },
   ];
   return <>

@@ -271,7 +271,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     borrowingTrends: months.map(({ month, borrowed, returned }) => ({ month, borrowed, returned })),
     categories,
     recentLoans: recent.map((item) => ({
-      id: item.id, title: item.book.title, author: item.book.author, borrowerName: item.loan.patron.name,
+      id: item.id, title: item.book?.title ?? "Unknown book", author: item.book?.author ?? "", borrowerName: item.loan.patron?.name ?? "Unknown borrower",
       dueDate: item.loan.dueDate.toISOString(), status: item.returnedAt ? "RETURNED" : item.loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
     })),
   });
@@ -527,8 +527,8 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     orderBy: { issuedAt: "desc" }, take: 500,
   });
   const items = loans.flatMap((loan) => loan.loanItems.map((item) => ({
-    id: item.id, loanItemId: item.id, loanId: loan.id, title: item.book.title, author: item.book.author,
-    borrowerName: loan.patron.name, memberCode: loan.patron.memberCode, borrowerType: loan.borrowerType, dueDate: loan.dueDate.toISOString(),
+    id: item.id, loanItemId: item.id, loanId: loan.id, title: item.book?.title ?? "Unknown book", author: item.book?.author ?? "",
+    borrowerName: loan.patron?.name ?? "Unknown borrower", memberCode: loan.patron?.memberCode ?? "", borrowerType: loan.borrowerType, dueDate: loan.dueDate.toISOString(),
     returnedAt: item.returnedAt?.toISOString() || null, status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
     fine: Number(item.fine),
     finePaid: item.payments.reduce((sum, payment) => sum + Number(payment.amount), 0),
@@ -611,8 +611,8 @@ app.get("/api/portal/loans", asyncRoute(async (req, res) => {
     return {
       id: item.id,
       loanId: loan.id,
-      title: item.book.title,
-      author: item.book.author,
+      title: item.book?.title ?? "Unknown book",
+      author: item.book?.author ?? "",
       issuedAt: loan.issuedAt.toISOString(),
       dueDate: loan.dueDate.toISOString(),
       returnedAt: item.returnedAt?.toISOString() || null,

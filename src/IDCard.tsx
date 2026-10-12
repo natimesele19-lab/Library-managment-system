@@ -11,7 +11,7 @@ export type IDCardPatron = {
   department?: string | null;
 };
 
-export function IDCard({ patron, t }: { patron: IDCardPatron; t: (key: string) => string }) {
+export function IDCard({ patron, libraryName, t }: { patron: IDCardPatron; libraryName: string; t: (key: string) => string }) {
   const detail = patron.type === "TEACHER" ? patron.department : patron.grade;
   const detailLabel = patron.type === "TEACHER" ? t("department") : t("grade");
 
@@ -19,7 +19,7 @@ export function IDCard({ patron, t }: { patron: IDCardPatron; t: (key: string) =
     <div className="id-card-content">
       <div className="id-card-details">
         <div className="id-card-brand">
-          {t("appName")} <span aria-hidden="true">—</span> {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}
+          {libraryName} <span aria-hidden="true">—</span> {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}
         </div>
         <h2>{patron.name}</h2>
         <dl>

@@ -1419,7 +1419,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
           department: toText(record.department) || null,
         };
         return <article className="id-card-print-item" data-printing={printTarget === "all" || printTarget === record.id ? "true" : undefined} key={record.id}>
-          <IDCard patron={patron} t={t} />
+          <IDCard patron={patron} libraryName={libraryName} t={t} />
           <div className="id-card-item-actions">
             <button className="button" onClick={() => setPrintTarget(record.id)}><FileText size={13} />{t("printIdCard")}</button>
           </div>
@@ -1593,7 +1593,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
     {idCardPatron && <div className="modal-backdrop id-card-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIdCardPatron(null); }}>
       <div className="modal id-card-modal" role="dialog" aria-modal="true" aria-label={t("generateIdCard")}>
         <div className="modal-head id-card-controls"><div className="modal-title">{t("generateIdCard")}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setIdCardPatron(null)}><X size={17} /></button></div>
-        <IDCard patron={idCardPatron} t={t} />
+        <IDCard patron={idCardPatron} libraryName={libraryName} t={t} />
         <div className="modal-actions id-card-controls"><button className="button" onClick={() => setIdCardPatron(null)}>{t("cancel")}</button><button className="button button-primary" onClick={() => window.print()}>{t("printIdCard")}</button></div>
       </div>
     </div>}

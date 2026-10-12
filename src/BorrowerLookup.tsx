@@ -7,6 +7,7 @@ type Patron = {
   name: string;
   memberCode: string;
   email?: string;
+  gender?: string;
   active?: boolean;
   type: "STUDENT" | "TEACHER";
 };
@@ -72,7 +73,7 @@ export function BorrowerLookup<T extends Patron>({ patrons, selected, onSelect, 
     </label>
     {showOptions && matches.length > 0 && <div className="borrower-options" role="listbox" aria-label={t("borrower")}>
       {matches.map((patron) => <button key={patron.id} type="button" role="option" className="borrower-option" onClick={() => { onSelect(patron); setShowOptions(false); }}>
-        <span>{patron.memberCode}</span><small>{patron.name} · {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}</small>
+        <span>{patron.memberCode}</span><small>{patron.name} · {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}{patron.gender ? ` · ${t(patron.gender.toLowerCase())}` : ""}</small>
       </button>)}
     </div>}
     {showOptions && query.trim() && !matches.length && !selected && <div className="borrower-options borrower-no-results">{t("noBorrowersFound")}</div>}

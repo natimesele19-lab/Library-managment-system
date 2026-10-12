@@ -83,6 +83,7 @@ model Patron {
   id          String     @id @default(cuid())
   memberCode  String     @unique
   name        String
+  gender      String?
   email       String     @unique
   phone       String?
   type        PatronType

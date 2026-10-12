@@ -4,6 +4,7 @@ export type IDCardPatron = {
   name: string;
   memberCode: string;
   type: "STUDENT" | "TEACHER";
+  gender?: string;
   email?: string;
   phone?: string;
   grade?: string | null;
@@ -24,6 +25,7 @@ export function IDCard({ patron, t }: { patron: IDCardPatron; t: (key: string) =
         <dl>
           <div><dt>{t("id")}</dt><dd>{patron.memberCode}</dd></div>
           <div><dt>{t("role")}</dt><dd>{t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}</dd></div>
+          {patron.gender && <div><dt>{t("gender")}</dt><dd>{t(patron.gender.toLowerCase())}</dd></div>}
           {detail && <div><dt>{detailLabel}</dt><dd>{detail}</dd></div>}
           {patron.email && <div><dt>{t("email")}</dt><dd>{patron.email}</dd></div>}
           {patron.phone && <div><dt>{t("phone")}</dt><dd>{patron.phone}</dd></div>}

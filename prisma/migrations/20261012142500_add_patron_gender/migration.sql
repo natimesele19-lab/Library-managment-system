@@ -1,0 +1,2 @@
+ALTER TABLE "Patron"
+ADD COLUMN "gender" TEXT;

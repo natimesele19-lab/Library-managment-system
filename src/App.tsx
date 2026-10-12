@@ -23,7 +23,7 @@ type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacher
 const isCrudPage = (page: Page): page is CrudPage =>
   page === "books" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
-type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; active?: boolean };
+type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
 type Stats = {
   totalBooks: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
   borrowersThisMonth: number; finesCollected: number;
@@ -87,6 +87,7 @@ const pageConfig: Record<CrudPage, {
     endpoint: "/patrons?type=STUDENT", title: "students", description: "searchAndManagePeople", icon: GraduationCap,
     fields: [
       { key: "name", label: "name", type: "text", required: true },
+      { key: "gender", label: "gender", type: "select" },
       { key: "email", label: "email", type: "email", required: true },
       { key: "phone", label: "phone", type: "tel" },
       { key: "grade", label: "grade", type: "text" },
@@ -97,6 +98,7 @@ const pageConfig: Record<CrudPage, {
     endpoint: "/patrons?type=TEACHER", title: "staff", description: "searchAndManagePeople", icon: Users,
     fields: [
       { key: "name", label: "name", type: "text", required: true },
+      { key: "gender", label: "gender", type: "select" },
       { key: "email", label: "email", type: "email", required: true },
       { key: "phone", label: "phone", type: "tel" },
       { key: "department", label: "department", type: "text" },
@@ -1010,7 +1012,7 @@ function App() {
         </form> : isCrudPage(page) && <form onSubmit={saveRecord}>
           <div className="form-grid">
             {[...pageConfig[page].fields, ...customFields.map((field) => ({ ...field, label: field.label }))].map((field) => (
-              field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
+              field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : field.key === "gender" ? [["", t("selectGender")], ["Male", t("male")], ["Female", t("female")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
                 : <FieldInput key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} name={field.key} value={form[field.key] || ""} type={field.type === "number" || field.type === "email" || field.type === "date" || field.type === "tel" ? field.type : "text"} step={field.key === "value" ? "0.01" : undefined} required={field.required} placeholder={field.placeholder ? t(field.placeholder) : undefined} onChange={(value) => setForm({ ...form, [field.key]: value })} />))}
             {(page === "students" || page === "staff") && <>
               <FieldInput label={t("portalPassword")} name="patron-portal-password" value={form.password || ""} onChange={(value) => setForm({ ...form, password: value })} type="password" placeholder={t("portalPasswordPlaceholder")} minLength={12} autoComplete="new-password" />
@@ -1411,6 +1413,7 @@ function IDCardsPage({ records, loading, query, setQuery, t }: {
           type: record.type,
           email: toText(record.email),
           phone: toText(record.phone),
+          gender: toText(record.gender),
           grade: toText(record.grade) || null,
           department: toText(record.department) || null,
         };
@@ -1497,6 +1500,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
       type: record.type,
       email: toText(record.email),
       phone: toText(record.phone),
+      gender: toText(record.gender),
       grade: toText(record.grade) || null,
       department: toText(record.department) || null,
     });
@@ -1505,7 +1509,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const headers = isCirculation || isReturnPage
     ? [["id", "id"], ["title", "title"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
-      ? [["memberCode", "id"], ["name", "name"], ["email", "email"], ["phone", "phone"], ["grade", page === "students" ? "grade" : "category"], ["status", "status"]]
+      ? [["memberCode", "id"], ["name", "name"], ["gender", "gender"], ["email", "email"], ["phone", "phone"], [page === "students" ? "grade" : "department", page === "students" ? "grade" : "department"], ["status", "status"]]
       : isInventory
         ? [["id", "id"], ["name", "asset"], ["category", "category"], ["quantity", "quantity"], ["location", "location"], ["condition", "condition"]]
         : isMedia
@@ -1550,7 +1554,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           <BorrowerLookup patrons={patrons} selected={selectedPatron} onSelect={setSelectedPatron}
             onUnknownCode={() => onLookupError(t("borrowerCodeNotFound"))} t={t} />
           {selectedPatron && <div className="borrower-summary">
-              <div><span>{selectedPatron.memberCode} · {t(selectedPatron.type === "TEACHER" ? "teacherRole" : "studentRole")}</span><strong>{selectedPatron.name}</strong></div>
+              <div><span>{selectedPatron.memberCode} · {t(selectedPatron.type === "TEACHER" ? "teacherRole" : "studentRole")}</span><strong>{selectedPatron.name}</strong>{selectedPatron.gender && <small>{t("gender")}: {t(selectedPatron.gender.toLowerCase())}</small>}</div>
             {isCirculation && <button className="button button-primary" onClick={() => onCreate(selectedPatron)}><Plus size={13} />{t("issueToBorrower")}</button>}
           </div>}
           {selectedPatron && <div className="identified-loans">

@@ -28,6 +28,20 @@ const allowedOrigins = new Set([
 const finePerDay = Number(process.env.FINE_PER_DAY || 5);
 const asyncRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
   (req: AuthRequest, res: Response, next: NextFunction) => { void handler(req, res).catch(next); };
+const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    void handler(req, res).catch((error: unknown) => {
+      if (res.headersSent) { next(error); return; }
+      if (error instanceof ApiError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      console.error(`Library settings request failed (${req.method} ${req.path}).`, error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
 
 app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -46,7 +60,7 @@ app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, stan
 app.use("/api/admin/change-password", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
-app.get("/api/public/settings", asyncRoute(async (_req, res) => {
+app.get("/api/public/settings", settingsRoute(async (_req, res) => {
   const settings = await prisma.librarySetting.findUnique({ where: { id: "global" } });
   res.json({
     libraryName: settings?.libraryName || "Libra",
@@ -161,7 +175,7 @@ app.route("/api/admin/change-password")
   .post(requireAdmin, changeAdminPassword)
   .put(requireAdmin, changeAdminPassword);
 
-const getAdminSettings = asyncRoute(async (_req, res) => {
+const getAdminSettings = settingsRoute(async (_req, res) => {
   const settings = await prisma.librarySetting.findUnique({ where: { id: "global" } });
   res.json({
     libraryName: settings?.libraryName || "Libra",
@@ -172,7 +186,7 @@ const getAdminSettings = asyncRoute(async (_req, res) => {
   });
 });
 
-const saveAdminSettings = asyncRoute(async (req, res) => {
+const saveAdminSettings = settingsRoute(async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     res.status(400).json({ error: "A valid library settings object is required." });
     return;
@@ -378,6 +392,7 @@ app.post("/api/patrons", asyncRoute(async (req, res) => {
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email))) { res.status(400).json({ error: "Enter a valid email address." }); return; }
   const type = body.type as "STUDENT" | "TEACHER";
+  const gender = patronGender(body.gender);
   const memberCode = optionalText(body.memberCode) || generateMemberCode(type);
   const password = patronPortalPassword(body.password);
   const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
@@ -386,7 +401,7 @@ app.post("/api/patrons", asyncRoute(async (req, res) => {
     const patron = await prisma.$transaction(async (transaction) => {
       const created = await transaction.patron.create({ data: {
         name: String(body.name).trim(), email: String(body.email).trim().toLowerCase(), memberCode,
-        type, phone: optionalText(body.phone), grade: optionalText(body.grade),
+        type, gender, phone: optionalText(body.phone), grade: optionalText(body.grade),
         department: optionalText(body.department), customFields,
       } });
       if (passwordHash) {
@@ -416,12 +431,14 @@ app.put("/api/patrons/:id", asyncRoute(async (req, res) => {
     res.status(400).json({ error: "Member code cannot be empty." });
     return;
   }
+  const gender = "gender" in body ? patronGender(body.gender) : undefined;
   const password = patronPortalPassword(body.password);
   const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
   const data: Prisma.PatronUpdateInput = {};
   for (const key of ["name", "email", "memberCode", "phone", "grade", "department"] as const) {
     if (key in body) Object.assign(data, { [key]: key === "email" || key === "memberCode" ? String(body[key]).trim() : optionalText(body[key]) });
   }
+  if ("gender" in body) data.gender = gender ?? null;
   if ("type" in body && ["STUDENT", "TEACHER"].includes(String(body.type))) data.type = body.type as "STUDENT" | "TEACHER";
   if ("customFields" in body) data.customFields = await validateCustomFields(FormEntity.PATRON, body.customFields, false);
   try {
@@ -1054,6 +1071,13 @@ function requiredText(value: unknown): value is string {
 }
 function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+function patronGender(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value !== "Male" && value !== "Female") {
+    throw new ApiError(400, "Gender must be either 'Male' or 'Female'.");
+  }
+  return value;
 }
 function patronPortalPassword(value: unknown): string | undefined {
   if (value === undefined || value === "") return undefined;

@@ -78,7 +78,7 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 
 `npm run db:reset` drops all data in the configured PostgreSQL database and recreates the schema; use it only when you intend to reset the database. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `EMAIL_FROM` in `.env` to enable daily overdue reminders; reminders are skipped with an explicit warning if SMTP is not configured. The client accepts `VITE_API_URL` as either the deployed API origin or its `/api` root; all frontend API requests, including borrowing and reservation deletes, use this centralized base URL. Configure `CLIENT_ORIGIN`, `UPLOAD_DIR`, and the database and signing secrets for the deployment environment. Store uploaded media on persistent private storage in production and back it up with the database. The browser-only document and spreadsheet parsers are build dependencies; the production API can be installed with `npm ci --omit=dev` after building the client and server.
 
-Existing databases must apply the `MediaAsset.category` and `LibrarySetting.defaultLanguage` schema additions before running the updated API. For this project’s local setup, run `npm run db:generate` followed by `npm run db:push`; migration-based deployments should apply the included migrations with `npx prisma migrate deploy`.
+Existing databases must apply the `MediaAsset.category`, `LibrarySetting.defaultLanguage`, and `Patron.gender` schema additions before running the updated API. For this project’s local setup, run `npm run db:generate` followed by `npm run db:push`; migration-based deployments should apply the included migrations with `npx prisma migrate deploy`.
 
 ## Notes for production deployment
 

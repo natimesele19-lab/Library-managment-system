@@ -223,7 +223,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
   const today = new Date(now);
   today.setUTCHours(0, 0, 0, 0);
   const startMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const [totalBooks, available, activeStudents, borrowersThisMonth, activeItems, overdueItems, recent, popularItems, returnedRecent, paidFine] = await Promise.all([
+  const [totalBooks, available, activeStudents, borrowersThisMonth, activeItems, overdueItems, recent, popularItems, returnedRecent, paidFine, bookCategoryGroups] = await Promise.all([
     prisma.book.aggregate({ _sum: { copies: true } }),
     prisma.book.aggregate({ _sum: { availableCopies: true } }),
     prisma.patron.count({ where: { type: "STUDENT", active: true } }),
@@ -240,6 +240,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     }),
     prisma.loanItem.findMany({ where: { loan: { issuedAt: { gte: startMonth } } }, select: { loan: { select: { issuedAt: true } }, returnedAt: true } }),
     prisma.finePayment.aggregate({ _sum: { amount: true } }),
+    prisma.book.groupBy({ by: ["category"], _sum: { copies: true } }),
   ]);
   const months = Array.from({ length: 6 }, (_, offset) => {
     const date = new Date(now.getFullYear(), now.getMonth() - 5 + offset, 1);
@@ -260,6 +261,14 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
   }
   const allCategoryLoans = [...categoryTotals.values()].reduce((sum, count) => sum + count, 0) || 1;
   const categories = [...categoryTotals.entries()].map(([name, count]) => ({ name, value: Math.round((count / allCategoryLoans) * 100) })).slice(0, 5);
+  const bookCategoryTotals = new Map<string, number>();
+  for (const group of bookCategoryGroups) {
+    const name = group.category?.trim() || "Other";
+    bookCategoryTotals.set(name, (bookCategoryTotals.get(name) || 0) + (group._sum.copies || 0));
+  }
+  const bookCategories = [...bookCategoryTotals.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   res.json({
     totalBooks: totalBooks._sum.copies || 0,
     availableBooks: available._sum.availableCopies || 0,
@@ -270,6 +279,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     finesCollected: Number(paidFine._sum.amount || 0),
     borrowingTrends: months.map(({ month, borrowed, returned }) => ({ month, borrowed, returned })),
     categories,
+    bookCategories,
     recentLoans: recent.map((item) => ({
       id: item.id, title: item.book?.title ?? "Unknown book", author: item.book?.author ?? "", borrowerName: item.loan.patron?.name ?? "Unknown borrower",
       dueDate: item.loan.dueDate.toISOString(), status: item.returnedAt ? "RETURNED" : item.loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",

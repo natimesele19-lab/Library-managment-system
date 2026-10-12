@@ -5,6 +5,7 @@ export type IDCardPatron = {
   memberCode: string;
   type: "STUDENT" | "TEACHER";
   email?: string;
+  phone?: string;
   grade?: string | null;
   department?: string | null;
 };
@@ -25,6 +26,7 @@ export function IDCard({ patron, t }: { patron: IDCardPatron; t: (key: string) =
           <div><dt>{t("role")}</dt><dd>{t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}</dd></div>
           {detail && <div><dt>{detailLabel}</dt><dd>{detail}</dd></div>}
           {patron.email && <div><dt>{t("email")}</dt><dd>{patron.email}</dd></div>}
+          {patron.phone && <div><dt>{t("phone")}</dt><dd>{patron.phone}</dd></div>}
         </dl>
       </div>
       <div className="id-card-qr" aria-label={t("memberQrCode")}>

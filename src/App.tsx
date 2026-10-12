@@ -29,6 +29,7 @@ type Stats = {
   borrowersThisMonth: number; finesCollected: number;
   borrowingTrends: { month: string; borrowed: number; returned: number }[];
   categories: { name: string; value: number }[];
+  bookCategories: { name: string; count: number }[];
   recentLoans: Row[];
 };
 type FormField = { id?: string; key: string; label: string; labelAm?: string | null; type: string; required?: boolean; entity?: string; placeholder?: string };
@@ -1208,6 +1209,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
             const activeRequest = activeReservations.find((reservation) => reservation.bookId === book.id);
             return <article className="panel portal-book" key={book.id}>
               <div className="portal-book-cover"><BookOpen size={23} /></div>
+              <div className="portal-book-id">{t("id")}: {toText(book.id)}</div>
               <div className="portal-book-category">{toText(book.category) || t("books")}</div>
               <h2>{toText(book.title)}</h2><div className="portal-book-author">{toText(book.author)}</div>
               {toText(book.description) && <p className="portal-book-description">{toText(book.description)}</p>}
@@ -1226,8 +1228,8 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
         </div>}
         {tab === "reservations" && <section className="panel">
           <div className="panel-head"><div><div className="panel-title">{t("myReservations")}</div><div className="panel-subtitle">{t("reservationHelp")}</div></div></div>
-          {loading.reservations ? <div className="loading-state">{t("loading")}</div> : reservations.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("title")}</th><th>{t("author")}</th><th>{t("date")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
-            {reservations.map((reservation) => <tr key={reservation.id}><td>{toText(reservation.book.title)}</td><td>{toText(reservation.book.author)}</td><td>{toText(reservation.requestedAt).slice(0, 10)}</td><td><Status value={reservation.status} t={t} /></td><td>{activeReservations.some((item) => item.id === reservation.id) && <button className="button" disabled={busyReservation === reservation.id} onClick={() => void cancelReservation(reservation.id)}>{t("cancelReservation")}</button>}</td></tr>)}
+          {loading.reservations ? <div className="loading-state">{t("loading")}</div> : reservations.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("id")}</th><th>{t("title")}</th><th>{t("author")}</th><th>{t("date")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
+            {reservations.map((reservation) => <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(reservation.book.title)}</td><td>{toText(reservation.book.author)}</td><td>{toText(reservation.requestedAt).slice(0, 10)}</td><td><Status value={reservation.status} t={t} /></td><td>{activeReservations.some((item) => item.id === reservation.id) && <button className="button" disabled={busyReservation === reservation.id} onClick={() => void cancelReservation(reservation.id)}>{t("cancelReservation")}</button>}</td></tr>)}
           </tbody></table></div> : <div className="empty-state">{t("noReservations")}</div>}
         </section>}
       </div>
@@ -1247,8 +1249,8 @@ function PortalLoanTable({ loans, loading, emptyLabel, history = false, t }: {
 }) {
   return <section className="panel portal-loan-panel">
     <div className="panel-head"><div><div className="panel-title">{t(history ? "borrowingHistory" : "activeLoans")}</div><div className="panel-subtitle">{t(history ? "pastTransactions" : "myBorrowedBooks")}</div></div></div>
-    {loading ? <div className="loading-state">{t("loading")}</div> : loans.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("title")}</th><th>{t("author")}</th><th>{t("issuedAt")}</th><th>{history ? t("returned") : t("dueDate")}</th><th>{t("status")}</th><th>{t("fineBalance")}</th></tr></thead><tbody>
-      {loans.map((loan) => <tr key={loan.id}><td>{toText(loan.title)}</td><td>{toText(loan.author)}</td><td>{toText(loan.issuedAt).slice(0, 10)}</td><td>{toText(history ? loan.returnedAt : loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td><td>{formatMoney(loan.fineRemaining, t("ethiopianBirr"))}</td></tr>)}
+    {loading ? <div className="loading-state">{t("loading")}</div> : loans.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("id")}</th><th>{t("title")}</th><th>{t("author")}</th><th>{t("issuedAt")}</th><th>{history ? t("returned") : t("dueDate")}</th><th>{t("status")}</th><th>{t("fineBalance")}</th></tr></thead><tbody>
+      {loans.map((loan) => <tr key={loan.id}><td>{toText(loan.loanItemId || loan.id)}</td><td>{toText(loan.title)}</td><td>{toText(loan.author)}</td><td>{toText(loan.issuedAt).slice(0, 10)}</td><td>{toText(history ? loan.returnedAt : loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td><td>{formatMoney(loan.fineRemaining, t("ethiopianBirr"))}</td></tr>)}
     </tbody></table></div> : <div className="empty-state">{emptyLabel}</div>}
   </section>;
 }
@@ -1260,7 +1262,7 @@ function PortalMediaSection({ media, loading, onOpen, t }: {
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
     {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className="portal-media-grid">{media.map((item) => <article className="portal-media-item" key={item.id}>
       <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : <FileAudio size={17} />}</div>
-      <div className="portal-media-info"><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
+      <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
       <button className="button" onClick={() => void onOpen(item)}>{t("previewMedia")}</button>
     </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}
   </section>;
@@ -1276,6 +1278,7 @@ function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loa
   const rawChartData = stats?.borrowingTrends?.length ? stats.borrowingTrends : monthNames.map((month) => ({ month, borrowed: 0, returned: 0 }));
   const chartData = localizeMonths(rawChartData);
   const categories = stats?.categories || [];
+  const bookCategories = stats?.bookCategories || [];
   const cards = [
     { label: t("totalBooks"), value: stats?.totalBooks ?? "—", icon: BookOpen, tint: "#e9f2ed", color: "#52876f" },
     { label: t("borrowed"), value: stats?.borrowedBooks ?? "—", icon: ArrowUpFromLine, tint: "#f8f0e7", color: "#b5824f" },
@@ -1308,10 +1311,18 @@ function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loa
         <div className="category-list">{categories.slice(0, 4).map((category, index) => <div className="category-row" key={category.name}><span className="category-name">{category.name}</span><div className="category-track"><div className="category-fill" style={{ width: `${Math.min(100, category.value)}%`, background: colors[index % colors.length] }} /></div><span className="category-value">{category.value}%</span></div>)}</div>
       </section>
     </div>
+    <section className="panel book-category-panel">
+      <div className="panel-head"><div><div className="panel-title">{t("bookCategorySummary")}</div><div className="panel-subtitle">{t("bookCategorySummaryHelp")}</div></div></div>
+      {loading ? <div className="loading-state">{t("loading")}</div> : bookCategories.length ? <div className="book-category-summary">
+        {bookCategories.map(({ name, count }) => <div className="book-category-count" key={name}>
+          <span>{name}</span><strong>{count}</strong>
+        </div>)}
+      </div> : <div className="empty-state">{t("noBookCategories")}</div>}
+    </section>
     <section className="panel activity-panel">    <div className="panel-head"><div><div className="panel-title">{t("recentActivity")}</div><div className="panel-subtitle">{t("latestCheckouts")}</div></div><button className="button" onClick={() => onNavigate("circulation")}>{t("viewAll")} <ArrowDownToLine size={12} /></button></div>
-      <div className="table-wrap"><table className="activity-table"><thead><tr><th>{t("bookCatalog")}</th><th>{t("borrower")}</th><th>{t("dueDate")}</th><th>{t("status")}</th></tr></thead><tbody>
-        {stats?.recentLoans?.slice(0, 4).map((loan) => <tr key={loan.id}><td><div className="book-info"><div className="book-cover">{toText(loan.title).slice(0, 1)}</div><div><div className="book-title">{toText(loan.title)}</div><div className="book-meta">{toText(loan.author)}</div></div></div></td><td>{toText(loan.borrowerName)}</td><td>{toText(loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td></tr>)}
-        {!stats?.recentLoans?.length && !loading && <tr><td colSpan={4}><div className="empty-state">{t("noRecords")}</div></td></tr>}
+      <div className="table-wrap"><table className="activity-table"><thead><tr><th>{t("id")}</th><th>{t("bookCatalog")}</th><th>{t("borrower")}</th><th>{t("dueDate")}</th><th>{t("status")}</th></tr></thead><tbody>
+        {stats?.recentLoans?.slice(0, 4).map((loan) => <tr key={loan.id}><td>{toText(loan.loanItemId || loan.id)}</td><td><div className="book-info"><div className="book-cover">{toText(loan.title).slice(0, 1)}</div><div><div className="book-title">{toText(loan.title)}</div><div className="book-meta">{toText(loan.author)}</div></div></div></td><td>{toText(loan.borrowerName)}</td><td>{toText(loan.dueDate).slice(0, 10)}</td><td><Status value={toText(loan.status)} t={t} /></td></tr>)}
+        {!stats?.recentLoans?.length && !loading && <tr><td colSpan={5}><div className="empty-state">{t("noRecords")}</div></td></tr>}
       </tbody></table></div>
     </section>
   </>;
@@ -1340,17 +1351,17 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
         <span className="reservation-count">{records.filter((item) => item.status === "REQUESTED" || item.status === "RESERVED").length} {t("activeReservations")}</span>
         <button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button>
       </div>
-      <div className="table-wrap"><table className="data-table reservation-table"><thead><tr><th>{t("patron")}</th><th>{t("title")}</th><th>{t("requestDate")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
-        {loading ? <tr><td colSpan={5}><div className="loading-state">{t("loading")}</div></td></tr> : visible.length ? visible.map((reservation) => {
+      <div className="table-wrap"><table className="data-table reservation-table"><thead><tr><th>{t("id")}</th><th>{t("patron")}</th><th>{t("title")}</th><th>{t("requestDate")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
+        {loading ? <tr><td colSpan={6}><div className="loading-state">{t("loading")}</div></td></tr> : visible.length ? visible.map((reservation) => {
           const active = reservation.status === "REQUESTED" || reservation.status === "RESERVED";
-          return <tr key={reservation.id}><td>{toText(reservation.patron?.name) || "—"}</td><td>{toText(reservation.book?.title) || "—"}</td><td>{new Date(toText(reservation.requestedAt)).toLocaleDateString()}</td><td><Status value={reservation.status} t={t} /></td>
+          return <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(reservation.patron?.name) || "—"}</td><td>{toText(reservation.book?.title) || "—"}</td><td>{new Date(toText(reservation.requestedAt)).toLocaleDateString()}</td><td><Status value={reservation.status} t={t} /></td>
             <td><div className="reservation-actions">
               {reservation.status === "REQUESTED" && <button className="button" disabled={busy} onClick={() => onUpdate(reservation, "RESERVED")}>{t("approveReservation")}</button>}
               {active && <button className="button button-primary" disabled={busy} onClick={() => onUpdate(reservation, "FULFILLED")}>{t("approveAndIssue")}</button>}
               {active && <button className="button button-danger" disabled={busy} onClick={() => onUpdate(reservation, "CANCELLED")}>{t("cancelReservation")}</button>}
               <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDelete(reservation)}><Trash2 size={14} /></button>
             </div></td></tr>;
-        }) : <tr><td colSpan={5}><div className="empty-state">{query.trim() ? t("noMatchingReservations") : t("noReservations")}</div></td></tr>}
+        }) : <tr><td colSpan={6}><div className="empty-state">{query.trim() ? t("noMatchingReservations") : t("noReservations")}</div></td></tr>}
       </tbody></table></div>
     </section>
   </>;
@@ -1399,6 +1410,7 @@ function IDCardsPage({ records, loading, query, setQuery, t }: {
           memberCode: toText(record.memberCode || record.id),
           type: record.type,
           email: toText(record.email),
+          phone: toText(record.phone),
           grade: toText(record.grade) || null,
           department: toText(record.department) || null,
         };
@@ -1484,20 +1496,21 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
       memberCode: toText(record.memberCode || record.id),
       type: record.type,
       email: toText(record.email),
+      phone: toText(record.phone),
       grade: toText(record.grade) || null,
       department: toText(record.department) || null,
     });
   }
   const [uploadCategory, setUploadCategory] = useState("Other");
   const headers = isCirculation || isReturnPage
-    ? [["title", "title"], ["borrowerName", "borrower"], ["memberCode", "id"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
+    ? [["id", "id"], ["title", "title"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
-      ? [["name", "name"], ["memberCode", "ID"], ["email", "email"], ["phone", "phone"], ["grade", page === "students" ? "grade" : "category"], ["status", "status"]]
+      ? [["memberCode", "id"], ["name", "name"], ["email", "email"], ["phone", "phone"], ["grade", page === "students" ? "grade" : "category"], ["status", "status"]]
       : isInventory
-        ? [["name", "asset"], ["category", "category"], ["quantity", "quantity"], ["location", "location"], ["condition", "condition"]]
+        ? [["id", "id"], ["name", "asset"], ["category", "category"], ["quantity", "quantity"], ["location", "location"], ["condition", "condition"]]
         : isMedia
-          ? [["title", "title"], ["mediaType", "type"], ["category", "category"], ["fileName", "file"], ["createdAt", "date"]]
-          : [["title", "title"], ["author", "author"], ["category", "category"], ["isbn", "isbn"], ["availableCopies", "available"]];
+          ? [["id", "id"], ["title", "title"], ["mediaType", "type"], ["category", "category"], ["fileName", "file"], ["createdAt", "date"]]
+          : [["id", "id"], ["title", "title"], ["author", "author"], ["category", "category"], ["isbn", "isbn"], ["availableCopies", "available"]];
   const searchPlaceholder = page === "books" ? t("searchBooks") : page === "students" ? t("searchStudents") : t("search");
 
   return <>
@@ -1537,14 +1550,14 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           <BorrowerLookup patrons={patrons} selected={selectedPatron} onSelect={setSelectedPatron}
             onUnknownCode={() => onLookupError(t("borrowerCodeNotFound"))} t={t} />
           {selectedPatron && <div className="borrower-summary">
-            <div><strong>{selectedPatron.name}</strong><span>{selectedPatron.memberCode} · {t(selectedPatron.type === "TEACHER" ? "teacherRole" : "studentRole")}</span></div>
+              <div><span>{selectedPatron.memberCode} · {t(selectedPatron.type === "TEACHER" ? "teacherRole" : "studentRole")}</span><strong>{selectedPatron.name}</strong></div>
             {isCirculation && <button className="button button-primary" onClick={() => onCreate(selectedPatron)}><Plus size={13} />{t("issueToBorrower")}</button>}
           </div>}
           {selectedPatron && <div className="identified-loans">
             <div className="panel-title">{t("activeLoansForBorrower")}</div>
             {patronLoansLoading ? <div className="loading-state">{t("loading")}</div> : patronLoans.length ? <div className="identified-loan-list">
               {patronLoans.map((loan) => <div className="identified-loan" key={toText(loan.loanItemId || loan.id)}>
-                <div><strong>{toText(loan.title)}</strong><small>{t("dueDate")}: {toText(loan.dueDate).slice(0, 10)} · <Status value={toText(loan.status)} t={t} /></small></div>
+                <div><small>{t("id")}: {toText(loan.loanItemId || loan.id)}</small><strong>{toText(loan.title)}</strong><small>{t("dueDate")}: {toText(loan.dueDate).slice(0, 10)} · <Status value={toText(loan.status)} t={t} /></small></div>
                 <button className="button" disabled={busy} onClick={async () => { await onReturn(loan); }}><RotateCcw size={12} />{t("returnBook")}</button>
               </div>)}
             </div> : <div className="empty-state borrower-empty">{t("noActiveLoansForBorrower")}</div>}
@@ -1565,7 +1578,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
@@ -1710,7 +1723,7 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
     </form>
     <section className="panel settings-custom-fields">
       <div className="panel-head"><div><div className="panel-title">{t("customForms")}</div><div className="panel-subtitle">{t("configureFields")}</div></div><button className="button button-primary" onClick={onAdd}><Plus size={13} />{t("addField")}</button></div>
-      {loading ? <div className="loading-state">{t("loading")}</div> : fields.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("fieldLabel")}</th><th>{t("fieldType")}</th><th>{t("entity")}</th><th>{t("requiredField")}</th><th>{t("actions")}</th></tr></thead><tbody>{fields.map((field) => <tr key={field.id || field.key}><td>{i18n.language === "am" ? field.labelAm || field.label : field.label}</td><td>{t(`field${field.type.charAt(0).toUpperCase()}${field.type.slice(1)}`)}</td><td>{field.entity || "—"}</td><td>{field.required ? t("yes") : t("no")}</td><td><button className="row-action" onClick={() => onEdit(field)} aria-label={t("edit")}><Settings size={14} /></button><button className="row-action" onClick={() => onRemove(field.id || field.key)} aria-label={t("delete")}><Trash2 size={14} /></button></td></tr>)}</tbody></table></div> : <div className="empty-state">{t("noRecords")}</div>}
+      {loading ? <div className="loading-state">{t("loading")}</div> : fields.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("id")}</th><th>{t("fieldLabel")}</th><th>{t("fieldType")}</th><th>{t("entity")}</th><th>{t("requiredField")}</th><th>{t("actions")}</th></tr></thead><tbody>{fields.map((field) => <tr key={field.id || field.key}><td>{field.id || field.key}</td><td>{i18n.language === "am" ? field.labelAm || field.label : field.label}</td><td>{t(`field${field.type.charAt(0).toUpperCase()}${field.type.slice(1)}`)}</td><td>{field.entity || "—"}</td><td>{field.required ? t("yes") : t("no")}</td><td><button className="row-action" onClick={() => onEdit(field)} aria-label={t("edit")}><Settings size={14} /></button><button className="row-action" onClick={() => onRemove(field.id || field.key)} aria-label={t("delete")}><Trash2 size={14} /></button></td></tr>)}</tbody></table></div> : <div className="empty-state">{t("noRecords")}</div>}
     </section>
   </>;
 }

@@ -23,7 +23,7 @@ export function BorrowerLookup<T extends Patron>({ patrons, selected, onSelect, 
   const [showOptions, setShowOptions] = useState(false);
 
   useEffect(() => {
-    setQuery(selected ? `${selected.name} · ${selected.memberCode}` : "");
+    setQuery(selected ? `${selected.memberCode} · ${selected.name}` : "");
   }, [selected]);
 
   const matches = useMemo(() => {
@@ -72,7 +72,7 @@ export function BorrowerLookup<T extends Patron>({ patrons, selected, onSelect, 
     </label>
     {showOptions && matches.length > 0 && <div className="borrower-options" role="listbox" aria-label={t("borrower")}>
       {matches.map((patron) => <button key={patron.id} type="button" role="option" className="borrower-option" onClick={() => { onSelect(patron); setShowOptions(false); }}>
-        <span>{patron.name}</span><small>{patron.memberCode} · {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}</small>
+        <span>{patron.memberCode}</span><small>{patron.name} · {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}</small>
       </button>)}
     </div>}
     {showOptions && query.trim() && !matches.length && !selected && <div className="borrower-options borrower-no-results">{t("noBorrowersFound")}</div>}

@@ -933,7 +933,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-left">
           <button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(!menuOpen)}><Menu size={18} /></button>
-          <div className="breadcrumb"><span>{t("appName")}</span><span style={{ margin: "0 8px" }}>/</span><strong>{pageTitle}</strong></div>
+          <div className="breadcrumb"><span>{librarySettings.libraryName}</span><span style={{ margin: "0 8px" }}>/</span><strong>{pageTitle}</strong></div>
         </div>
         <div className="topbar-right">
           <label className="search-top"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -948,19 +948,19 @@ function App() {
         </div>}
         <PageErrorBoundary key={page} t={t}>
         <div className="page-transition">
-        {page === "dashboard" && <Dashboard stats={stats} loading={loading} t={t} onNavigate={setPage} />}
-        {page === "reports" && <Reports stats={stats} loading={loading} t={t} />}
-        {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} t={t} />}
-        {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} t={t}
+        {page === "dashboard" && <Dashboard stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} onNavigate={setPage} />}
+        {page === "reports" && <Reports stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} />}
+        {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} libraryName={librarySettings.libraryName} t={t} />}
+        {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
           onClearHistory={() => void clearReservationHistory()} />}
-        {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} busy={busy} onSave={saveLibrarySettings}
+        {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} libraryName={librarySettings.libraryName} busy={busy} onSave={saveLibrarySettings}
           onChangeLanguage={setLanguage} onChangePassword={changePassword}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
         {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
-          page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+          page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} libraryName={librarySettings.libraryName}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
@@ -1270,7 +1270,7 @@ function PortalMediaSection({ media, loading, onOpen, t }: {
   </section>;
 }
 
-function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loading: boolean; t: (key: string) => string; onNavigate: (page: Page) => void }) {
+function Dashboard({ stats, loading, libraryName, t, onNavigate }: { stats: Stats | null; loading: boolean; libraryName: string; t: (key: string) => string; onNavigate: (page: Page) => void }) {
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12
     ? "Good morning, Admin"
@@ -1288,7 +1288,7 @@ function Dashboard({ stats, loading, t, onNavigate }: { stats: Stats | null; loa
     { label: t("overdue"), value: stats?.overdueBooks ?? "—", icon: Clock3, tint: "#f9ebea", color: "#bb625b" },
   ];
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("overview")}</div><h1 className="page-title">{greeting}</h1><p className="page-description">{t("welcomeSub")}</p></div>
+    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("overview")}</div><h1 className="page-title">{greeting}</h1><p className="page-description">{t("welcomeSub")}</p></div>
       <div className="heading-actions"><button className="button" onClick={() => onNavigate("reports")}><CalendarDays size={13} /> {t("thisMonth")} <ChevronDown size={12} /></button><button className="button button-primary" onClick={() => onNavigate("circulation")}><Plus size={14} /> {t("issueBooks")}</button></div>
     </div>
     <div className="stats-grid">{cards.map(({ label, value, icon: Icon, tint, color }) => <div className="stat-card" key={label}>
@@ -1338,16 +1338,16 @@ function Status({ value, t }: { value: string; t: (key: string) => string }) {
   return <span className={`status-pill status-${key}`}>{localized}</span>;
 }
 
-function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate, onDelete, onClearHistory }: {
+function ReservationsPage({ records, loading, query, setQuery, busy, libraryName, t, onUpdate, onDelete, onClearHistory }: {
   records: StaffReservation[]; loading: boolean; query: string; setQuery: (value: string) => void; busy: boolean;
-  t: (key: string) => string; onUpdate: (reservation: Row, status: "RESERVED" | "FULFILLED" | "CANCELLED") => void;
+  libraryName: string; t: (key: string) => string; onUpdate: (reservation: Row, status: "RESERVED" | "FULFILLED" | "CANCELLED") => void;
   onDelete: (reservation: Row) => void; onClearHistory: () => void;
 }) {
   const search = query.trim().toLowerCase();
   const visible = records.filter((reservation) => !search ||
     `${toText(reservation.patron?.name)} ${toText(reservation.book?.title)} ${reservation.status}`.toLowerCase().includes(search));
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("appName")} · {t("adminSettings")}</div><h1 className="page-title">{t("reservationQueue")}</h1><p className="page-description">{t("reservationQueueHelp")}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("adminSettings")}</div><h1 className="page-title">{t("reservationQueue")}</h1><p className="page-description">{t("reservationQueueHelp")}</p></div></div>
     <section className="panel">
       <div className="toolbar"><div className="toolbar-group" style={{ flex: 1 }}><label className="table-search"><Search size={14} /><input aria-label={t("search")} placeholder={t("searchReservations")} value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
         <span className="reservation-count">{records.filter((item) => item.status === "REQUESTED" || item.status === "RESERVED").length} {t("activeReservations")}</span>
@@ -1369,11 +1369,12 @@ function ReservationsPage({ records, loading, query, setQuery, busy, t, onUpdate
   </>;
 }
 
-function IDCardsPage({ records, loading, query, setQuery, t }: {
+function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
   records: Row[];
   loading: boolean;
   query: string;
   setQuery: (value: string) => void;
+  libraryName: string;
   t: (key: string) => string;
 }) {
   const [printTarget, setPrintTarget] = useState<string | "all" | null>(null);
@@ -1394,7 +1395,7 @@ function IDCardsPage({ records, loading, query, setQuery, t }: {
   return <div className="id-cards-print-root" data-print-all={printTarget === "all" ? "true" : undefined}>
     <div className="page-heading id-cards-toolbar">
       <div>
-        <div className="eyebrow">{t("appName")} · {t("adminSettings")}</div>
+        <div className="eyebrow">{libraryName} · {t("adminSettings")}</div>
         <h1 className="page-title">{t("idCards")}</h1>
         <p className="page-description">{t("idCardsDescription")}</p>
       </div>
@@ -1428,9 +1429,10 @@ function IDCardsPage({ records, loading, query, setQuery, t }: {
   </div>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onClearHistory, onLookupError, busy, t }: {
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onClearHistory, onLookupError, busy, libraryName, t }: {
   page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
+  libraryName: string;
   onCreate: (patron?: Row) => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
   onReturn: (record: Row) => Promise<void>; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
@@ -1518,7 +1520,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const searchPlaceholder = page === "books" ? t("searchBooks") : page === "students" ? t("searchStudents") : t("search");
 
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("appName")} · {t("adminSettings")}</div><h1 className="page-title">{t(config.title)}</h1>{config.description && <p className="page-description">{t(config.description)}</p>}</div>
+    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("adminSettings")}</div><h1 className="page-title">{t(config.title)}</h1>{config.description && <p className="page-description">{t(config.description)}</p>}</div>
       <div className="heading-actions">{isMedia ? <>
         <label className="media-upload-category"><span>{t("category")}</span><select aria-label={t("category")} value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
         <label className="button button-primary"><Plus size={13} />{t("uploadMedia")}<input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={(event) => onUpload(event, uploadCategory)} /></label>
@@ -1586,7 +1588,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
-      <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : t("appName")}</span></div>
+      <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : libraryName}</span></div>
     </section>
     {idCardPatron && <div className="modal-backdrop id-card-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIdCardPatron(null); }}>
       <div className="modal id-card-modal" role="dialog" aria-modal="true" aria-label={t("generateIdCard")}>
@@ -1598,7 +1600,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   </>;
 }
 
-function Reports({ stats, loading, t }: { stats: Stats | null; loading: boolean; t: (key: string) => string }) {
+function Reports({ stats, loading, libraryName, t }: { stats: Stats | null; loading: boolean; libraryName: string; t: (key: string) => string }) {
   const values = [
     { title: "booksInCollection", value: stats?.totalBooks ?? "—", icon: BookOpen, note: t("totalBooks") },
     { title: "borrowersThisMonth", value: stats?.borrowersThisMonth ?? "—", icon: Users, note: t("borrowersThisMonth") },
@@ -1606,15 +1608,16 @@ function Reports({ stats, loading, t }: { stats: Stats | null; loading: boolean;
     { title: "overdueRate", value: stats?.totalBooks ? `${Math.round((stats.overdueBooks / stats.totalBooks) * 100)}%` : "—", icon: Activity, note: t("overdue") },
   ];
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{t("appName")} · {t("reports")}</div><h1 className="page-title">{t("reportSummary")}</h1><p className="page-description">{t("reportDescription")}</p></div><button className="button" onClick={() => window.print()}><Download size={13} />{t("export")}</button></div>
+    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("reports")}</div><h1 className="page-title">{t("reportSummary")}</h1><p className="page-description">{t("reportDescription")}</p></div><button className="button" onClick={() => window.print()}><Download size={13} />{t("export")}</button></div>
     <div className="report-grid">{values.map(({ title, value, icon: Icon, note }) => <section className="panel report-card" key={title}><div className="stat-top"><div className="panel-title">{t(title)}</div><div className="stat-icon" style={{ background: "#eaf2ee", color: "#52876f" }}><Icon size={15} /></div></div><div className="report-number">{loading ? "…" : value}</div><div className="report-note">{note}</div></section>)}</div>
     <div style={{ height: 14 }} />
     <section className="panel"><div className="panel-head"><div><div className="panel-title">{t("monthlyBorrowing")}</div><div className="panel-subtitle">{t("chartsNote")}</div></div></div><div style={{ height: 270, padding: "8px 18px 18px" }}><ResponsiveContainer width="100%" height="100%"><AreaChart data={localizeMonths(stats?.borrowingTrends || [])} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}><CartesianGrid stroke="#f0f2f1" vertical={false} /><XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: "#a4abad", fontSize: 9 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: "#a4abad", fontSize: 9 }} /><Tooltip /><Area type="monotone" dataKey="borrowed" stroke="#518970" fill="#edf5ef" /><Area type="monotone" dataKey="returned" stroke="#d2a66a" fill="transparent" /></AreaChart></ResponsiveContainer></div></section>
   </>;
 }
 
-function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
+function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
   fields: FormField[]; loading: boolean; t: (key: string) => string; settings: LibrarySettings; busy: boolean;
+  libraryName: string;
   onSave: (settings: LibrarySettings) => Promise<void>; onAdd: () => void;
   onEdit: (field: FormField) => void; onRemove: (id: string) => void;
   onChangeLanguage: (language: "en" | "am") => Promise<void>;
@@ -1685,7 +1688,7 @@ function SettingsPage({ fields, loading, t, settings, busy, onSave, onAdd, onEdi
   return <>
     <section className="panel settings-form" aria-labelledby="admin-settings-welcome">
       <div className="settings-body">
-        <div className="eyebrow">{t("appName")} · {t("adminSettings")}</div>
+        <div className="eyebrow">{libraryName} · {t("adminSettings")}</div>
         <h1 id="admin-settings-welcome" className="page-title">Welcome Admin</h1>
         <p className="page-description">{t("welcomeSub")}</p>
       </div>

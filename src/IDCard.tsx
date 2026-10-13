@@ -19,7 +19,11 @@ export function IDCard({ patron, libraryName, t }: { patron: IDCardPatron; libra
     <div className="id-card-content">
       <div className="id-card-details">
         <div className="id-card-brand">
-          {libraryName} <span aria-hidden="true">—</span> {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}
+          <span className="id-card-library-name">{libraryName}</span>
+          <span className="id-card-brand-role">
+            <span aria-hidden="true">— </span>
+            {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}
+          </span>
         </div>
         <h2>{patron.name}</h2>
         <dl>

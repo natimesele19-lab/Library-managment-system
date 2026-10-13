@@ -572,6 +572,35 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     status === "ACTIVE" || status === "OVERDUE" ? items.filter((item) => item.status !== "RETURNED") : items);
 }));
 
+app.put("/api/loans/items/:id", requireStaff, asyncRoute(async (req, res) => {
+  const typeFilter = getBorrowerTypeFilter(req.query.type);
+  if (!typeFilter || typeFilter === "ALL") { res.status(400).json({ error: "A valid patron type is required." }); return; }
+  const { dueDate } = req.body as { dueDate?: unknown };
+  if (typeof dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    res.status(400).json({ error: "Enter a valid due date." });
+    return;
+  }
+  const parsedDueDate = new Date(`${dueDate}T00:00:00.000Z`);
+  if (Number.isNaN(parsedDueDate.getTime()) || parsedDueDate.toISOString().slice(0, 10) !== dueDate) {
+    res.status(400).json({ error: "Enter a valid due date." });
+    return;
+  }
+  const loan = await prisma.$transaction(async (transaction) => {
+    const item = await transaction.loanItem.findFirst({
+      where: { id: req.params.id, loan: { borrowerType: typeFilter } },
+      select: { id: true, loanId: true },
+    });
+    if (!item) throw new ApiError(404, "Borrowing record not found.");
+    return transaction.loan.update({
+      where: { id: item.loanId },
+      data: { dueDate: parsedDueDate },
+      select: { id: true, dueDate: true },
+    });
+  });
+  await audit(req, "UPDATE", "LOAN_ITEM", req.params.id, { loanId: loan.id, dueDate: loan.dueDate.toISOString() });
+  res.json({ dueDate: loan.dueDate.toISOString() });
+}));
+
 const clearResolvedBorrowings = asyncRoute(async (req, res) => {
   const typeFilter = getBorrowerTypeFilter(req.query.type);
   if (!typeFilter) { res.status(400).json({ error: "Invalid patron type filter." }); return; }
@@ -609,9 +638,11 @@ const deleteResolvedBorrowing = asyncRoute(async (req, res) => {
       include: { payments: { select: { id: true } } },
     });
     if (!current) throw new ApiError(404, "Borrowing record not found.");
-    if (!current.returnedAt) throw new ApiError(409, "Active borrowing records cannot be deleted.");
     if (Number(current.fine) > 0 || current.payments.length) {
       throw new ApiError(409, "Records with outstanding fines or payment history cannot be deleted.");
+    }
+    if (!current.returnedAt) {
+      await transaction.book.update({ where: { id: current.bookId }, data: { availableCopies: { increment: 1 } } });
     }
     await transaction.loanItem.delete({ where: { id: current.id } });
     if (!(await transaction.loanItem.count({ where: { loanId: current.loanId } }))) {

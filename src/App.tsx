@@ -4,7 +4,7 @@ import {
   Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
   Clock3, Download, FileAudio, FileText, GraduationCap, Languages, Moon,
-  KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Plus, Search,
+  KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
   QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X,
 } from "lucide-react";
 import {
@@ -267,8 +267,9 @@ function App() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [mediaCategoryFilter, setMediaCategoryFilter] = useState("ALL");
-  const [modal, setModal] = useState<"record" | "borrow" | "field" | "fine" | "account" | null>(null);
+  const [modal, setModal] = useState<"record" | "borrow" | "editBorrowing" | "field" | "fine" | "account" | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [editingBorrowing, setEditingBorrowing] = useState<Row | null>(null);
   const [accountPatron, setAccountPatron] = useState<Row | null>(null);
   const [editingField, setEditingField] = useState<FormField | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -532,7 +533,7 @@ function App() {
   }
 
   async function deleteBorrowing(record: Row) {
-    if (!window.confirm("Are you sure you want to delete this record?")) return;
+    if (!window.confirm(`${t("confirmDeleteBorrowing")} "${toText(record.title)}"?`)) return;
     setBusy(true);
     setError("");
     try {
@@ -542,6 +543,32 @@ function App() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("unableToDeleteRecord"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openBorrowingEdit(record: Row) {
+    setEditingBorrowing(record);
+    setForm({ dueDate: toText(record.dueDate).slice(0, 10) });
+    setError("");
+    setModal("editBorrowing");
+  }
+
+  async function saveBorrowingEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingBorrowing) return;
+    setBusy(true);
+    setError("");
+    try {
+      const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
+      await api.put(`/loans/items/${editingBorrowing.loanItemId || editingBorrowing.id}?type=${patronType}`, { dueDate: form.dueDate });
+      setModal(null);
+      setEditingBorrowing(null);
+      setSuccess(t("recordSaved"));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update borrowing record.");
     } finally {
       setBusy(false);
     }
@@ -966,7 +993,7 @@ function App() {
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
           onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia}
           selectedIds={selectedIds} onToggleSelected={toggleSelected} onDeleteSelected={deleteSelected} onReturnSelected={returnSelectedLoans}
-          onDeleteBorrowing={deleteBorrowing} onClearHistory={clearBorrowingHistory} onLookupError={setError} busy={busy} t={t}
+          onDeleteBorrowing={deleteBorrowing} onEditBorrowing={openBorrowingEdit} onClearHistory={clearBorrowingHistory} onLookupError={setError} busy={busy} t={t}
         />}
         </div>
         </PageErrorBoundary>
@@ -981,9 +1008,13 @@ function App() {
     </div>}
     {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
       <div className="modal" role="dialog" aria-modal="true">
-        <div className="modal-head"><div className="modal-title">{modal === "borrow" ? t("issueBooks") : modal === "field" ? editingField ? t("editField") : t("addField") : modal === "fine" ? t("collectFine") : modal === "account" ? accountPatron?.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword") : editing ? t("save") : isDataPage && page === "books" ? t("addBook") : isDataPage && page === "students" ? t("addStudent") : t("addRecord")}</div>
+        <div className="modal-head"><div className="modal-title">{modal === "borrow" ? t("issueBooks") : modal === "editBorrowing" ? t("edit") : modal === "field" ? editingField ? t("editField") : t("addField") : modal === "fine" ? t("collectFine") : modal === "account" ? accountPatron?.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword") : editing ? t("save") : isDataPage && page === "books" ? t("addBook") : isDataPage && page === "students" ? t("addStudent") : t("addRecord")}</div>
           <button className="row-action" aria-label={t("cancel")} onClick={() => setModal(null)}><X size={17} /></button></div>
-        {modal === "account" ? <form onSubmit={savePortalAccount}>
+        {modal === "editBorrowing" ? <form onSubmit={saveBorrowingEdit}>
+          <p className="page-description">{t("borrowingDueDateHelp")}</p>
+          <div className="form-grid"><FieldInput label={t("dueDate")} name="borrowing-due-date" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required type="date" /></div>
+          <div className="modal-actions"><button type="button" className="button" onClick={() => { setModal(null); setEditingBorrowing(null); }}>{t("cancel")}</button><button className="button button-primary" disabled={busy}>{t("save")}</button></div>
+        </form> : modal === "account" ? <form onSubmit={savePortalAccount}>
           <p className="page-description">{t("accountPasswordHelp")}</p>
           <div className="form-grid"><FieldInput label={t("password")} name="portal-password" value={form.password || ""} onChange={(value) => setForm({ ...form, password: value })} type="password" required /></div>
           <div className="modal-actions"><button type="button" className="button" onClick={() => setModal(null)}>{t("cancel")}</button><button className="button button-primary" disabled={busy}>{t("save")}</button></div>
@@ -1429,7 +1460,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
   </div>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onClearHistory, onLookupError, busy, libraryName, t }: {
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, t }: {
   page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
   libraryName: string;
@@ -1437,7 +1468,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   onReturn: (record: Row) => Promise<void>; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
   selectedIds: string[]; onToggleSelected: (id: string) => void; onDeleteSelected: () => void; onReturnSelected: () => void;
-  onDeleteBorrowing: (record: Row) => void; onClearHistory: () => void; onLookupError: (message: string) => void; busy: boolean; t: (key: string) => string;
+  onDeleteBorrowing: (record: Row) => void; onEditBorrowing: (record: Row) => void; onClearHistory: () => void; onLookupError: (message: string) => void; busy: boolean; t: (key: string) => string;
 }) {
   const [patrons, setPatrons] = useState<BorrowerRow[]>([]);
   const [selectedPatron, setSelectedPatron] = useState<BorrowerRow | null>(null);
@@ -1585,7 +1616,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
           {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && toText(record.status) === "RETURNED" && <button className="row-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : libraryName}</span></div>

@@ -243,6 +243,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
         </form>
       </section>
     </div>
+    <footer className="login-credit">Made by Natnael Mesele</footer>
   </main>;
 }
 
@@ -385,6 +386,14 @@ function App() {
 
   const isDataPage = page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
   const visibleRecords = useMemo(() => {
+    if (page === "circulation" || page === "teacherBorrowing") {
+      if (!query.trim()) return records;
+      const search = query.trim().toLowerCase();
+      return records.filter((record) =>
+        ["title", "author", "borrowerName", "memberCode", "loanItemId", "id"]
+          .some((key) => toText(record[key]).toLowerCase().includes(search)),
+      );
+    }
     if (page === "returns") {
       const active = records.filter((record) => toText(record.status) !== "RETURNED");
       const filtered = statusFilter === "ALL" ? active : active.filter((record) => toText(record.status) === statusFilter);
@@ -767,33 +776,55 @@ function App() {
   }
 
   async function exportFile(format: "xlsx" | "docx") {
-    const XLSX = await import("xlsx");
-    const rows = visibleRecords.map((record) => {
-      const values = Object.fromEntries(Object.entries(record).filter(([key]) => !["id", "createdAt", "updatedAt"].includes(key)));
-      return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === "object" ? JSON.stringify(value) : value]));
-    });
-    if (format === "xlsx") {
-      const worksheet = XLSX.utils.json_to_sheet(rows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, page);
-      XLSX.writeFile(workbook, `library-${page}.xlsx`);
-    } else {
-      const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType } = await import("docx");
-      const keys = rows.length ? Object.keys(rows[0]) : ["No records"];
-      const tableRows = [keys, ...rows.map((row) => keys.map((key) => toText(row[key])))].map((cells) =>
-        new TableRow({ children: cells.map((cell) => new TableCell({ children: [new Paragraph(cell)] })) }),
-      );
-      const doc = new Document({ sections: [{ children: [
-        new Paragraph({ text: `Library ${page}`, heading: "Heading1" }),
-        new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
-      ] }] });
-      const blob = await Packer.toBlob(doc);
-      const url = URL.createObjectURL(blob);
-      const link = window.document.createElement("a");
-      link.href = url;
-      link.download = `library-${page}.docx`;
-      link.click();
-      URL.revokeObjectURL(url);
+    try {
+      const isBorrowingPage = page === "circulation" || page === "teacherBorrowing";
+      const borrowingColumns = [t("id"), t("title"), t("borrower"), t("memberCode"), t("dueDate"), t("status"), t("fine")];
+      const rows = visibleRecords.map((record) => {
+        if (isBorrowingPage) {
+          return {
+            [borrowingColumns[0]]: toText(record.loanItemId || record.id),
+            [borrowingColumns[1]]: toText(record.title),
+            [borrowingColumns[2]]: toText(record.borrowerName),
+            [borrowingColumns[3]]: toText(record.memberCode),
+            [borrowingColumns[4]]: toText(record.dueDate).slice(0, 10),
+            [borrowingColumns[5]]: toText(record.status),
+            [borrowingColumns[6]]: formatMoney(record.fineRemaining, t("ethiopianBirr")),
+          };
+        }
+        const values = Object.fromEntries(Object.entries(record).filter(([key]) => !["id", "createdAt", "updatedAt"].includes(key)));
+        return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === "object" ? JSON.stringify(value) : value]));
+      });
+      if (format === "xlsx") {
+        const XLSX = await import("xlsx");
+        const worksheet = isBorrowingPage
+          ? XLSX.utils.aoa_to_sheet([borrowingColumns, ...rows.map((row) => borrowingColumns.map((column) => toText(row[column])))])
+          : XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, page);
+        XLSX.writeFile(workbook, `library-${page}.xlsx`);
+      } else {
+        const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType } = await import("docx");
+        const keys = rows.length ? Object.keys(rows[0]) : isBorrowingPage ? borrowingColumns : ["No records"];
+        const tableRows = [keys, ...rows.map((row) => keys.map((key) => toText(row[key])))].map((cells) =>
+          new TableRow({ children: cells.map((cell) => new TableCell({ children: [new Paragraph(cell)] })) }),
+        );
+        const doc = new Document({ sections: [{ children: [
+          new Paragraph({ text: `Library ${page}`, heading: "Heading1" }),
+          new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+        ] }] });
+        const blob = await Packer.toBlob(doc);
+        const url = URL.createObjectURL(blob);
+        const link = window.document.createElement("a");
+        link.href = url;
+        link.download = `library-${page}.docx`;
+        link.hidden = true;
+        window.document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("unableToExportRecords"));
     }
   }
 
@@ -956,6 +987,7 @@ function App() {
         {t("footerNotice") && <footer className="app-footer">{t("footerNotice")}</footer>}
       </div>
     </aside>
+    {menuOpen && <button type="button" className="sidebar-scrim" aria-label={t("closeMenu")} onClick={() => setMenuOpen(false)} />}
     <main className="main-content">
       <header className="topbar">
         <div className="topbar-left">
@@ -1209,10 +1241,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   return <div className="portal-shell">
     <header className="topbar portal-topbar">
       <Brand libraryName={libraryName} />
-      <div className="topbar-right"><span className="portal-user">{user.name}</span>
+      <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
         <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
         <button className="lang-button" onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
-        <button className="button" onClick={onSignOut}><LogOut size={13} />{t("signOut")}</button>
+        <button className="button" onClick={onSignOut}><LogOut size={13} /><span className="hide-mobile">{t("signOut")}</span></button>
       </div>
     </header>
     <main className="portal-content">
@@ -1578,7 +1610,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {isReturnPage && selectedIds.length > 0 && <button className="button button-primary" disabled={busy} onClick={onReturnSelected}><RotateCcw size={12} />{t("returnSelected")} ({selectedIds.length})</button>}
           {isPeople && selectedIds.length > 0 && <button className="button button-danger" onClick={onDeleteSelected}><Trash2 size={12} />{t("deleteSelected")} ({selectedIds.length})</button>}
           {!isCirculation && !isReturnPage && !isMedia && <label className="button"><Download size={12} />{t("import")}<input type="file" accept=".xlsx,.docx" hidden onChange={onImport} /></label>}
-          {!isCirculation && !isReturnPage && !isMedia && <div style={{ display: "flex", gap: 5 }}><button className="button" title="Export Excel" onClick={() => onExport("xlsx")}><ArrowDownToLine size={12} /><span className="hide-mobile">XLSX</span></button><button className="button" title="Export Word" onClick={() => onExport("docx")}><FileText size={12} /><span className="hide-mobile">DOCX</span></button></div>}
+          {!isReturnPage && !isMedia && <div className="toolbar-group export-actions"><button className="button" title={t("exportExcel")} onClick={() => onExport("xlsx")}><ArrowDownToLine size={12} />{t("exportExcel")}</button><button className="button" title={t("exportWord")} onClick={() => onExport("docx")}><FileText size={12} />{t("exportWord")}</button></div>}
           <button className="button" onClick={() => { setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><SlidersHorizontal size={12} />{t("filter")}</button>
         </div>
       </div>

@@ -4,10 +4,12 @@ import { mkdir, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import cors from "cors";
+import { Readable } from "node:stream";
 import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
+import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import multer from "multer";
 import { PDFDocument } from "pdf-lib";
 import { FormEntity, Prisma, type PatronType } from "@prisma/client";
@@ -18,6 +20,15 @@ import { sendDailyOverdueReminders } from "./reminders.js";
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
+const cloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET,
+);
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
+  api_key: process.env.CLOUDINARY_API_KEY || "",
+  api_secret: process.env.CLOUDINARY_API_SECRET || "",
+  secure: true,
+});
 const allowedOrigins = new Set([
   "http://localhost:5173",
   "http://localhost:3000",
@@ -1096,6 +1107,60 @@ const upload = multer({
     callback(null, true);
   },
 });
+const cloudinaryFileTypes: Record<string, string[]> = {
+  ".jpg": ["image/jpeg"],
+  ".jpeg": ["image/jpeg"],
+  ".png": ["image/png"],
+  ".gif": ["image/gif"],
+  ".webp": ["image/webp"],
+  ".pdf": ["application/pdf"],
+  ".mp3": ["audio/mpeg", "audio/mp3"],
+  ".wav": ["audio/wav", "audio/x-wav"],
+  ".m4a": ["audio/mp4", "audio/x-m4a"],
+  ".ogg": ["audio/ogg", "application/ogg"],
+};
+const cloudinaryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    if (!cloudinaryFileTypes[extension]?.includes(file.mimetype.toLowerCase())) {
+      callback(new ApiError(400, "Only supported image, PDF, and audio files can be uploaded."));
+      return;
+    }
+    callback(null, true);
+  },
+});
+
+function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiResponse> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({ resource_type: "auto" }, (error, result) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (!result) {
+        reject(new Error("Cloudinary did not return an upload result."));
+        return;
+      }
+      resolve(result);
+    });
+    Readable.from([file.buffer]).pipe(stream);
+  });
+}
+
+app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRoute(async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: "A file is required." }); return; }
+  if (!cloudinaryConfigured) {
+    throw new ApiError(503, "Cloudinary uploads are not configured. Set the Cloudinary environment variables.");
+  }
+  const uploaded = await uploadToCloudinary(req.file);
+  res.status(201).json({
+    secure_url: uploaded.secure_url,
+    public_id: uploaded.public_id,
+    resource_type: uploaded.resource_type,
+  });
+}));
 
 app.get("/api/media", asyncRoute(async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";

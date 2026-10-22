@@ -5,7 +5,7 @@ import {
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
   Clock3, Download, FileAudio, FileText, GraduationCap, Languages, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
-  QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X,
+  QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip,
@@ -175,6 +175,62 @@ function ThemeButton({ darkMode, onToggle }: { darkMode: boolean; onToggle: () =
   </button>;
 }
 
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
+function InstallAppControl({ t }: { t: (key: string) => string }) {
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [showHelp, setShowHelp] = useState(false);
+
+  useEffect(() => {
+    const handleInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const handleInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setShowHelp(false);
+    };
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  async function install() {
+    if (!installPrompt) {
+      setShowHelp((visible) => !visible);
+      return;
+    }
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === "accepted") setInstalled(true);
+  }
+
+  return <div className="pwa-controls">
+    {!installed && <button type="button" className="lang-button pwa-install-button" aria-label={t("installApp")} title={t("installApp")} onClick={() => void install()}>
+      <Download size={13} /><span>{t("installApp")}</span>
+    </button>}
+    {!online && <span className="pwa-offline" role="status"><WifiOff size={13} />{t("offlineStatus")}</span>}
+    {showHelp && !installed && <span className="pwa-install-help" role="status">{t("installHelp")}</span>}
+  </div>;
+}
+
 function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
   onLogin: (token: string, user: Account) => void; libraryName: string; darkMode: boolean; onToggleTheme: () => void;
 }) {
@@ -235,6 +291,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
 
       <section className="login-form-panel" aria-labelledby="login-form-title">
         <div className="login-controls">
+          <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
           <button type="button" className="lang-button" onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); }}>
             <Languages size={14} />{i18n.language === "en" ? t("amharic") : t("english")}
@@ -1018,6 +1075,7 @@ function App() {
         <div className="topbar-right">
           <label className="search-top"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
           <button className="icon-button" aria-label={t("notifications")} title={t("notifications")} onClick={() => { setPage("circulation"); setStatusFilter("OVERDUE"); }}><Bell size={15} />{stats?.overdueBooks ? <span className="notify-dot" /> : null}</button>
+          <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={() => setDarkMode((enabled) => !enabled)} />
           <button className="lang-button" onClick={changeLanguage}><Languages size={13} /><span>{i18n.language === "en" ? "EN" : "አማ"}</span><ChevronDown size={12} /></button>
         </div>
@@ -1269,6 +1327,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     <header className="topbar portal-topbar">
       <Brand libraryName={libraryName} />
       <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
+        <InstallAppControl t={t} />
         <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
         <button className="lang-button" onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
         <button className="button" onClick={onSignOut}><LogOut size={13} /><span className="hide-mobile">{t("signOut")}</span></button>

@@ -3,6 +3,9 @@ import { initReactI18next } from "react-i18next";
 
 const en = {
   appName: "Libra",
+  installApp: "Install app",
+  installHelp: "Use your browser menu to add Libra to your home screen.",
+  offlineStatus: "Offline",
   tagline: "LIBRARY MANAGEMENT",
   dashboard: "Dashboard",
   books: "Books",
@@ -357,6 +360,9 @@ const en = {
 
 const am = {
   appName: "ሊብራ",
+  installApp: "መተግበሪያውን ይጫኑ",
+  installHelp: "ሊብራን ወደ መነሻ ማያዎ ለመጨመር የአሳሽዎን ምናሌ ይጠቀሙ።",
+  offlineStatus: "ከመስመር ውጭ",
   tagline: "የቤተ መጻሕፍት አስተዳደር",
   dashboard: "ዳሽቦርድ",
   books: "መጻሕፍት",

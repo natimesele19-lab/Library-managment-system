@@ -48,6 +48,10 @@ button { cursor: pointer; }
 .icon-button:hover { background: #f2f5f4; }
 .notify-dot { position: absolute; right: 5px; top: 4px; width: 6px; height: 6px; border: 1px solid white; background: #dc665e; border-radius: 50%; }
 .lang-button { display: flex; align-items: center; gap: 6px; border: 1px solid #e9edef; background: white; border-radius: 6px; padding: 7px 9px; color: #5c6870; font-size: 10px; font-weight: 600; }
+.pwa-controls { position: relative; display: flex; align-items: center; gap: 7px; }
+.pwa-install-button { white-space: nowrap; }
+.pwa-offline { display: inline-flex; align-items: center; gap: 5px; color: #a34b45; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.pwa-install-help { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: min(250px, calc(100vw - 24px)); padding: 10px 12px; border: 1px solid #e1e8e4; border-radius: 6px; background: white; box-shadow: 0 8px 24px rgba(29, 47, 39, .12); color: #53615e; font-size: 11px; line-height: 1.5; }
 .main-content { width: calc(100% - 254px); min-width: 0; }
 .page-content { padding: 31px 39px 44px; max-width: 1500px; margin: auto; }
 .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-bottom: 25px; }
@@ -338,6 +342,7 @@ button { cursor: pointer; }
 .dark .topbar, .dark .profile, .dark .data-table th, .dark .activity-table th, .dark .activity-table td, .dark .data-table td, .dark .table-footer, .dark .book-picker-option { border-color: #2b3a34; }
 .dark .data-table td, .dark .activity-table td { color: #bdc9c2; }
 .dark .button, .dark .lang-button, .dark .select-control, .dark .field input, .dark .field select, .dark .table-search, .dark .search-top, .dark .book-picker-list { background: #202d28; color: #d6e0da; border-color: #35463e; }
+.dark .pwa-install-help { background: #202d28; color: #d6e0da; border-color: #35463e; }
 .dark .button:hover { background: #293a32; }
 .dark .button-primary { background: #3c7865; border-color: #3c7865; color: #fff; }
 .dark .field label { color: #b8c6be; }
@@ -512,6 +517,9 @@ button { cursor: pointer; }
   .login-feature { min-height: 0; }
   .login-feature p { font-size: 10px; }
   .topbar-right { gap: 7px; }
+  .pwa-controls { gap: 5px; }
+  .pwa-install-button { padding: 7px; }
+  .pwa-install-button span { display: none; }
   .breadcrumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search-top { display: none; }
   .heading-actions .button { padding: 8px; }

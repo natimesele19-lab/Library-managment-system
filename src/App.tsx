@@ -33,6 +33,18 @@ type Stats = {
   bookCategories: { name: string; count: number }[];
   recentLoans: Row[];
 };
+const EMPTY_STATS: Stats = {
+  totalBooks: 0,
+  borrowedBooks: 0,
+  activeStudents: 0,
+  overdueBooks: 0,
+  borrowersThisMonth: 0,
+  finesCollected: 0,
+  borrowingTrends: [],
+  categories: [],
+  bookCategories: [],
+  recentLoans: [],
+};
 type FormField = { id?: string; key: string; label: string; labelAm?: string | null; type: string; required?: boolean; entity?: string; placeholder?: string };
 type Account = { id: string; name: string; email: string; role: string; patronId?: string; patronType?: "STUDENT" | "TEACHER"; memberCode?: string };
 type PortalReservation = Row & { status: "REQUESTED" | "RESERVED" | "FULFILLED" | "CANCELLED"; book: Row };
@@ -332,7 +344,7 @@ function App() {
   const [borrowers, setBorrowers] = useState<Row[]>([]);
   const [availableBooks, setAvailableBooks] = useState<Row[]>([]);
   const [availableExamSheets, setAvailableExamSheets] = useState<Row[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
   const [customFields, setCustomFields] = useState<FormField[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

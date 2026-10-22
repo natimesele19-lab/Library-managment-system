@@ -24,6 +24,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - English and Amharic interface with persisted language preference.
 - Authenticated librarian/admin workspace, role-aware API, request throttling for sign-in, and audit logs.
 - Dashboard statistics, monthly circulation trends, category summaries, and recent activity.
+- Automatically caches successfully loaded dashboard and data-view responses in browser storage for offline access; views without an initial cache use empty collections and zeroed dashboard metrics.
 - Searchable book and patron catalogs, inventory tracking, digital media uploads, and XLSX/DOCX import and export. DOCX imports require a table whose first row contains the exported field names. XLSX uses the patched official SheetJS 0.20.3 release from the SheetJS CDN; the outdated npm registry package is intentionally not used.
 - Multi-book circulation transactions and per-book return processing with configurable daily late fees (`FINE_PER_DAY`, default 5 ETB).
 - Dedicated active-returns workspace with borrower search, single returns, and atomic batch returns; each return updates availability and calculates late fees.

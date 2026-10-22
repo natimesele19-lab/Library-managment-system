@@ -4,8 +4,35 @@ const configuredApiUrl = (import.meta.env.VITE_API_URL?.trim() || "https://libra
 const API_BASE = /\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`;
 const CACHE_PREFIX = "library-cache-v1:";
 const QUEUE_KEY = "library-offline-queue-v1";
+const COLLECTION_PATHS = new Set([
+  "/books",
+  "/exam-sheets",
+  "/patrons",
+  "/loans",
+  "/inventory",
+  "/media",
+  "/reservations",
+  "/custom-fields",
+  "/portal/loans",
+  "/portal/reservations",
+  "/audit-logs",
+]);
 
 type QueuedAction = { id: string; userId: string; path: string; data: unknown };
+
+const EMPTY_DASHBOARD = {
+  totalBooks: 0,
+  availableBooks: 0,
+  borrowedBooks: 0,
+  activeStudents: 0,
+  borrowersThisMonth: 0,
+  overdueBooks: 0,
+  finesCollected: 0,
+  borrowingTrends: [],
+  categories: [],
+  bookCategories: [],
+  recentLoans: [],
+};
 
 function currentUserId(): string {
   try {
@@ -97,6 +124,18 @@ function filterCached(path: string): unknown | undefined {
     return true;
   });
   return filtered;
+}
+
+function emptyResponse(path: string): unknown | undefined {
+  let pathname: string;
+  try {
+    pathname = new URL(path, window.location.origin).pathname;
+  } catch {
+    return undefined;
+  }
+  if (pathname === "/dashboard") return EMPTY_DASHBOARD;
+  if (COLLECTION_PATHS.has(pathname)) return [];
+  return undefined;
 }
 
 function isQueueable(path: string): boolean {
@@ -203,6 +242,8 @@ export async function request<T>(path: string, options: RequestInit = {}, allowQ
   if (method === "GET" && !navigator.onLine) {
     const cached = filterCached(path);
     if (cached !== undefined) return pendingRecords(path, Array.isArray(cached) ? cached as Record<string, unknown>[] : []) as T;
+    const fallback = emptyResponse(path);
+    if (fallback !== undefined) return fallback as T;
     throw new Error("No cached data is available for this view while offline.");
   }
   if (allowQueue && method === "POST" && isQueueable(path) && !navigator.onLine) {
@@ -220,6 +261,8 @@ export async function request<T>(path: string, options: RequestInit = {}, allowQ
     if (method === "GET") {
       const cached = filterCached(path);
       if (cached !== undefined) return pendingRecords(path, Array.isArray(cached) ? cached as Record<string, unknown>[] : []) as T;
+      const fallback = emptyResponse(path);
+      if (fallback !== undefined) return fallback as T;
     }
     if (allowQueue && method === "POST" && isQueueable(path)) return queueAction(path, JSON.parse(String(options.body || "{}"))) as T;
     throw cause;
@@ -234,6 +277,8 @@ export async function request<T>(path: string, options: RequestInit = {}, allowQ
     if (method === "GET" && response.status >= 500) {
       const cached = filterCached(path);
       if (cached !== undefined) return pendingRecords(path, Array.isArray(cached) ? cached as Record<string, unknown>[] : []) as T;
+      const fallback = emptyResponse(path);
+      if (fallback !== undefined) return fallback as T;
     }
     throw new Error(body.error || `Request failed (${response.status})`);
   }

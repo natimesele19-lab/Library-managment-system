@@ -444,6 +444,16 @@ function App() {
   }, [page, load]);
 
   useEffect(() => {
+    const refresh = () => { void load(); };
+    window.addEventListener("online", refresh);
+    window.addEventListener("library:offline-sync-complete", refresh);
+    return () => {
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("library:offline-sync-complete", refresh);
+    };
+  }, [load]);
+
+  useEffect(() => {
     if (page !== "dashboard") return;
     const interval = window.setInterval(() => { void load(); }, 60_000);
     return () => window.clearInterval(interval);

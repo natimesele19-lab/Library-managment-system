@@ -17,11 +17,12 @@ import { useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
 import { BorrowerLookup } from "./BorrowerLookup";
 import { IDCard, type IDCardPatron } from "./IDCard";
+import { ExamSheetsPage } from "./ExamSheetsPage";
 
-type Page = "dashboard" | "books" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
+type Page = "dashboard" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
 type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
 const isCrudPage = (page: Page): page is CrudPage =>
-  page === "books" || page === "students" || page === "staff" || page === "inventory" || page === "media";
+  page === "books" || page === "examSheets" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
 type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
 type Stats = {
@@ -51,6 +52,7 @@ function savedAccount(): Account | null {
 const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; section: "main" | "manage" }[] = [
   { page: "dashboard", icon: LayoutDashboard, label: "dashboard", section: "main" },
   { page: "books", icon: BookOpen, label: "books", section: "manage" },
+  { page: "examSheets", icon: FileText, label: "examSheets", section: "manage" },
   { page: "students", icon: GraduationCap, label: "students", section: "manage" },
   { page: "staff", icon: Users, label: "staff", section: "manage" },
   { page: "idCards", icon: QrCode, label: "idCards", section: "manage" },
@@ -81,6 +83,17 @@ const pageConfig: Record<CrudPage, {
       { key: "description", label: "description", type: "text" },
       { key: "publisher", label: "publisher", type: "text" },
       { key: "publishedYear", label: "publishedYear", type: "number" },
+    ],
+  },
+  examSheets: {
+    endpoint: "/exam-sheets", title: "examSheets", description: "examSheetsDescription", icon: FileText,
+    fields: [
+      { key: "title", label: "title", type: "text", required: true },
+      { key: "subject", label: "subject", type: "text" },
+      { key: "grade", label: "grade", type: "text" },
+      { key: "examYear", label: "examYear", type: "number" },
+      { key: "copies", label: "quantity", type: "number", required: true },
+      { key: "description", label: "description", type: "text" },
     ],
   },
   students: {
@@ -235,7 +248,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
             <button type="button" role="tab" aria-selected={mode === "staff"} className={`login-mode ${mode === "staff" ? "active" : ""}`} onClick={() => { setMode("staff"); setIdentifier(""); setError(""); }}>{t("staffLogin")}</button>
             <button type="button" role="tab" aria-selected={mode === "member"} className={`login-mode ${mode === "member" ? "active" : ""}`} onClick={() => { setMode("member"); setIdentifier(""); setError(""); }}>{t("memberLogin")}</button>
           </div>
-          <div className="field" style={{ marginBottom: 15 }}><label htmlFor="login-identifier">{t(mode === "member" ? "memberCodeOrEmail" : "emailAddress")}</label><input id="login-identifier" type={mode === "staff" ? "email" : "text"} autoComplete="username" placeholder={t(mode === "member" ? "memberCodeOrEmailPlaceholder" : "emailPlaceholder")} required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></div>
+          <div className="field" style={{ marginBottom: 15 }}><label htmlFor="login-identifier">{t(mode === "member" ? "memberCodeOrEmail" : "emailOrPhone")}</label><input id="login-identifier" type="text" autoComplete="username" placeholder={t(mode === "member" ? "memberCodeOrEmailPlaceholder" : "emailOrPhonePlaceholder")} required value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></div>
           <div className="field"><label htmlFor="login-password">{t("password")}</label><input id="login-password" type="password" autoComplete="current-password" placeholder={t("passwordPlaceholder")} required value={password} onChange={(event) => setPassword(event.target.value)} /></div>
           {error && <div className="login-error" role="alert">{error}</div>}
           <button className="button button-primary" disabled={busy}>{busy ? t("loading") : t("signIn")}<span aria-hidden="true">→</span></button>
@@ -261,6 +274,7 @@ function App() {
   const [mediaPreview, setMediaPreview] = useState<{ title: string; type: string; url: string } | null>(null);
   const [borrowers, setBorrowers] = useState<Row[]>([]);
   const [availableBooks, setAvailableBooks] = useState<Row[]>([]);
+  const [availableExamSheets, setAvailableExamSheets] = useState<Row[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [customFields, setCustomFields] = useState<FormField[]>([]);
   const [loading, setLoading] = useState(false);
@@ -367,7 +381,7 @@ function App() {
   }, [token, currentUser, page, query, loanStatusFilter, t]);
 
   useEffect(() => {
-    const debounce = ["books", "students", "staff", "idCards", "inventory", "media"].includes(page) ? 250 : 0;
+    const debounce = ["books", "examSheets", "students", "staff", "idCards", "inventory", "media"].includes(page) ? 250 : 0;
     const timer = window.setTimeout(() => { void load(); }, debounce);
     return () => window.clearTimeout(timer);
   }, [page, load]);
@@ -470,7 +484,7 @@ function App() {
         payload.type = page === "students" ? "STUDENT" : "TEACHER";
         if (form.password) payload.password = form.password;
       }
-      if (page === "books" && !payload.copies) payload.copies = 1;
+      if ((page === "books" || page === "examSheets") && !payload.copies) payload.copies = 1;
       if (editing) await api.put(`${config.endpoint.split("?")[0]}/${editing.id}`, payload);
       else await api.post(config.endpoint.split("?")[0], payload);
       setModal(null);
@@ -680,13 +694,16 @@ function App() {
 
   async function openBorrowModal(patron?: Row) {
     setError("");
-    setForm({ dueDate: dateAfterDays(14), bookIds: "", ...(patron ? { patronId: patron.id } : {}) });
+    setForm({ dueDate: dateAfterDays(14), itemKeys: "", ...(patron ? { patronId: patron.id } : {}) });
     setModal("borrow");
     try {
       const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
-      const [people, books] = await Promise.all([api.get<Row[]>(`/patrons?type=${patronType}`), api.get<Row[]>("/books")]);
+      const [people, books, examSheets] = await Promise.all([
+        api.get<Row[]>(`/patrons?type=${patronType}`), api.get<Row[]>("/books"), api.get<Row[]>("/exam-sheets"),
+      ]);
       setBorrowers(people.filter((person) => person.active !== false));
       setAvailableBooks(books.filter((book) => Number(book.availableCopies) > 0));
+      setAvailableExamSheets(examSheets.filter((examSheet) => Number(examSheet.availableCopies) > 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load borrowers and books.");
     }
@@ -725,8 +742,9 @@ function App() {
     if (mode === "issue") {
       const book = availableBooks.find((candidate) => candidate.id === code || candidate.isbn === code);
       if (!book) { setError(t("barcodeNotFound")); return; }
-      const selected = (form.bookIds || "").split(",").filter(Boolean);
-      if (!selected.includes(book.id)) setForm({ ...form, bookIds: [...selected, book.id].join(",") });
+      const selected = (form.itemKeys || "").split(",").filter(Boolean);
+      const key = `BOOK:${book.id}`;
+      if (!selected.includes(key)) setForm({ ...form, itemKeys: [...selected, key].join(",") });
       setSuccess(t("scanSuccess"));
       return;
     }
@@ -924,7 +942,10 @@ function App() {
       await api.post("/loans", {
         patronId: form.patronId,
         patronType: page === "teacherBorrowing" ? "TEACHER" : "STUDENT",
-        bookIds: form.bookIds?.split(",").map((id) => id.trim()).filter(Boolean),
+        items: (form.itemKeys || "").split(",").filter(Boolean).map((key) => {
+          const [type, ...idParts] = key.split(":");
+          return { type, id: idParts.join(":") };
+        }),
         dueDate: form.dueDate,
       });
       setModal(null);
@@ -1010,6 +1031,8 @@ function App() {
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} />}
         {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} libraryName={librarySettings.libraryName} t={t} />}
+        {page === "examSheets" && <ExamSheetsPage records={visibleRecords} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
+          onCreate={startCreate} onEdit={startEdit} onDelete={deleteRecord} />}
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
           onClearHistory={() => void clearReservationHistory()} />}
@@ -1018,7 +1041,7 @@ function App() {
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
-        {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && <DataPage
+        {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && page !== "examSheets" && <DataPage
           page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} libraryName={librarySettings.libraryName}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
@@ -1040,7 +1063,7 @@ function App() {
     </div>}
     {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
       <div className="modal" role="dialog" aria-modal="true">
-        <div className="modal-head"><div className="modal-title">{modal === "borrow" ? t("issueBooks") : modal === "editBorrowing" ? t("edit") : modal === "field" ? editingField ? t("editField") : t("addField") : modal === "fine" ? t("collectFine") : modal === "account" ? accountPatron?.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword") : editing ? t("save") : isDataPage && page === "books" ? t("addBook") : isDataPage && page === "students" ? t("addStudent") : t("addRecord")}</div>
+        <div className="modal-head"><div className="modal-title">{modal === "borrow" ? t("issueBooks") : modal === "editBorrowing" ? t("edit") : modal === "field" ? editingField ? t("editField") : t("addField") : modal === "fine" ? t("collectFine") : modal === "account" ? accountPatron?.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword") : editing ? t("save") : isDataPage && page === "books" ? t("addBook") : isDataPage && page === "examSheets" ? t("addExamSheet") : isDataPage && page === "students" ? t("addStudent") : t("addRecord")}</div>
           <button className="row-action" aria-label={t("cancel")} onClick={() => setModal(null)}><X size={17} /></button></div>
         {modal === "editBorrowing" ? <form onSubmit={saveBorrowingEdit}>
           <p className="page-description">{t("borrowingDueDateHelp")}</p>
@@ -1057,7 +1080,7 @@ function App() {
           <div className="form-grid">
             <FieldSelect label={t("selectBorrower")} value={form.patronId || ""} onChange={(value) => setForm({ ...form, patronId: value })} options={[["", t("selectBorrower")], ...borrowers.map((person) => [person.id, `${toText(person.name)} · ${toText(person.memberCode)}`] as [string, string])]} />
             <div className="book-picker-wrap">
-              <SearchableBookSelect books={availableBooks} selected={(form.bookIds || "").split(",").filter(Boolean)} onChange={(ids) => setForm({ ...form, bookIds: ids.join(",") })} t={t} />
+              <SearchableLoanItemSelect books={availableBooks} examSheets={availableExamSheets} selected={(form.itemKeys || "").split(",").filter(Boolean)} onChange={(itemKeys) => setForm({ ...form, itemKeys: itemKeys.join(",") })} t={t} />
               <button type="button" className="button" onClick={() => startScanning("issue")}><Camera size={13} />{t("scanToIssue")}</button>
             </div>
             <FieldInput label={t("dueDate")} name="dueDate" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required type="date" />
@@ -1089,10 +1112,10 @@ function App() {
   </div>;
 }
 
-function FieldInput({ label, name, value, onChange, type = "text", step, required, placeholder, minLength, maxLength, autoComplete }: {
-  label: string; name: string; value: string; type?: string; step?: string; required?: boolean; placeholder?: string; minLength?: number; maxLength?: number; autoComplete?: string; onChange: (value: string) => void;
+function FieldInput({ label, name, value, onChange, type = "text", step, min, required, placeholder, minLength, maxLength, autoComplete }: {
+  label: string; name: string; value: string; type?: string; step?: string; min?: number; required?: boolean; placeholder?: string; minLength?: number; maxLength?: number; autoComplete?: string; onChange: (value: string) => void;
 }) {
-  return <div className="field"><label htmlFor={`field-${name}`}>{label}</label><input id={`field-${name}`} type={type} step={step} value={value} required={required} minLength={minLength} maxLength={maxLength} autoComplete={autoComplete} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></div>;
+  return <div className="field"><label htmlFor={`field-${name}`}>{label}</label><input id={`field-${name}`} type={type} step={step} min={min} value={value} required={required} minLength={minLength} maxLength={maxLength} autoComplete={autoComplete} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></div>;
 }
 
 class PageErrorBoundary extends Component<{ children: ReactNode; t: (key: string) => string }, { hasError: boolean }> {
@@ -1120,20 +1143,24 @@ function FieldSelect({ label, value, onChange, options, disabled = false }: {
   return <div className="field"><label>{label}</label><select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map(([option, title]) => <option key={option} value={option}>{title}</option>)}</select></div>;
 }
 
-function SearchableBookSelect({ books, selected, onChange, t }: {
-  books: Row[]; selected: string[]; onChange: (ids: string[]) => void; t: (key: string) => string;
+function SearchableLoanItemSelect({ books, examSheets, selected, onChange, t }: {
+  books: Row[]; examSheets: Row[]; selected: string[]; onChange: (ids: string[]) => void; t: (key: string) => string;
 }) {
   const [search, setSearch] = useState("");
-  const visible = books.filter((book) => `${toText(book.title)} ${toText(book.author)} ${toText(book.isbn)}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((current) => current !== id) : [...selected, id]);
+  const items: { itemType: "BOOK" | "EXAM_SHEET"; itemKey: string; title: unknown; detail: string; availableCopies: unknown; isbn?: unknown }[] = [
+    ...books.map((book) => ({ itemType: "BOOK" as const, itemKey: `BOOK:${book.id}`, title: book.title, detail: toText(book.author), availableCopies: book.availableCopies, isbn: book.isbn })),
+    ...examSheets.map((sheet) => ({ itemType: "EXAM_SHEET" as const, itemKey: `EXAM_SHEET:${sheet.id}`, title: sheet.title, detail: [toText(sheet.subject), toText(sheet.grade)].filter(Boolean).join(" · "), availableCopies: sheet.availableCopies })),
+  ];
+  const visible = items.filter((item) => `${toText(item.title)} ${item.detail} ${toText(item.isbn)}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const toggle = (itemKey: string) => onChange(selected.includes(itemKey) ? selected.filter((current) => current !== itemKey) : [...selected, itemKey]);
   return <div className="field book-picker">
-    <label>{t("selectBooks")}</label>
-    <label className="table-search book-picker-search"><Search size={14} /><input aria-label={t("searchAvailableBooks")} placeholder={t("searchAvailableBooks")} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-    <div className="book-picker-list" role="group" aria-label={t("selectBooks")}>
-      {visible.length ? visible.map((book) => <label className="book-picker-option" key={book.id}>
-        <input type="checkbox" checked={selected.includes(book.id)} onChange={() => toggle(book.id)} />
-        <span><strong>{toText(book.title)}</strong><small>{toText(book.author)} · {toText(book.availableCopies)} {t("availableCopiesLabel")}</small></span>
-      </label>) : <div className="book-picker-empty">{t("noBooks")}</div>}
+    <label>{t("selectLoanItems")}</label>
+    <label className="table-search book-picker-search"><Search size={14} /><input aria-label={t("searchLoanItems")} placeholder={t("searchLoanItems")} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+    <div className="book-picker-list" role="group" aria-label={t("selectLoanItems")}>
+          {visible.length ? visible.map((item) => <label className="book-picker-option" key={item.itemKey}>
+        <input type="checkbox" checked={selected.includes(item.itemKey)} onChange={() => toggle(item.itemKey)} />
+        <span><strong>{toText(item.title)}</strong><small>{t(item.itemType === "BOOK" ? "book" : "examSheet")} · {item.detail || t("available")} · {toText(item.availableCopies)} {t("availableCopiesLabel")}</small></span>
+          </label>) : <div className="book-picker-empty">{t("noLoanItems")}</div>}
     </div>
     <div className="book-picker-footer">{selected.length} {t("selectedBooks")}</div>
   </div>;
@@ -1572,7 +1599,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   }
   const [uploadCategory, setUploadCategory] = useState("Other");
   const headers = isCirculation || isReturnPage
-    ? [["id", "id"], ["title", "title"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
+    ? [["id", "id"], ["title", "title"], ["itemType", "itemType"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
       ? [["memberCode", "id"], ["name", "name"], ["gender", "gender"], ["email", "email"], ["phone", "phone"], [page === "students" ? "grade" : "department", page === "students" ? "grade" : "department"], ["status", "status"]]
       : isInventory
@@ -1647,7 +1674,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
@@ -1762,6 +1789,7 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
         <div className="form-grid">
           <FieldInput label={t("libraryName")} name="library-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
           <FieldInput label={t("appTitle")} name="app-title" value={draft.appTitle} onChange={(value) => setDraft({ ...draft, appTitle: value })} required />
+          <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
           <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
           <FieldInput label={`${t("footerNotice")} · ${t("english")}`} name="footer-notice-en" value={footerNoticeEnglish} onChange={setFooterNoticeEnglish} placeholder={t("footerNoticePlaceholder")} maxLength={500} />
           <FieldInput label={`${t("footerNotice")} · ${t("amharic")}`} name="footer-notice-am" value={footerNoticeAmharic} onChange={setFooterNoticeAmharic} placeholder={t("footerNoticePlaceholder")} maxLength={500} />

@@ -59,6 +59,7 @@ export async function sendDailyOverdueReminders() {
     },
     include: {
       book: { select: { title: true } },
+      examSheet: { select: { title: true } },
       loan: { include: { patron: { select: { id: true, name: true, email: true } } } },
     },
     orderBy: [{ loan: { patronId: "asc" } }, { loan: { dueDate: "asc" } }],
@@ -87,11 +88,13 @@ export async function sendDailyOverdueReminders() {
 
     const list = borrowerItems.map((item) => {
       const due = item.loan.dueDate.toISOString().slice(0, 10);
-      return `<li><strong>${escapeHtml(item.book.title)}</strong> — due ${due}</li>`;
+      const title = item.book?.title ?? item.examSheet?.title ?? "Unknown item";
+      return `<li><strong>${escapeHtml(title)}</strong> — due ${due}</li>`;
     }).join("");
-    const plainList = borrowerItems.map((item) =>
-      `- ${item.book.title} (due ${item.loan.dueDate.toISOString().slice(0, 10)})`,
-    ).join("\n");
+    const plainList = borrowerItems.map((item) => {
+      const title = item.book?.title ?? item.examSheet?.title ?? "Unknown item";
+      return `- ${title} (due ${item.loan.dueDate.toISOString().slice(0, 10)})`;
+    }).join("\n");
 
     try {
       await mailer.sendMail({

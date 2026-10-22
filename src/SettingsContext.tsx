@@ -6,6 +6,7 @@ export type LibrarySettings = {
   libraryName: string;
   appTitle: string;
   defaultLanguage: "en" | "am";
+  finePerDay: number;
   englishText: Record<string, string>;
   amharicText: Record<string, string>;
 };
@@ -14,6 +15,7 @@ const defaultLibrarySettings: LibrarySettings = {
   libraryName: "Libra",
   appTitle: "Library Management",
   defaultLanguage: "en",
+  finePerDay: 5,
   englishText: {},
   amharicText: {},
 };

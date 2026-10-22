@@ -25,7 +25,7 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:3000",
   ...(process.env.CLIENT_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean),
 ]);
-const finePerDay = Number(process.env.FINE_PER_DAY || 5);
+const defaultFinePerDay = Number(process.env.FINE_PER_DAY || 5);
 const asyncRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
   (req: AuthRequest, res: Response, next: NextFunction) => { void handler(req, res).catch(next); };
 const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
@@ -66,6 +66,7 @@ app.get("/api/public/settings", settingsRoute(async (_req, res) => {
     libraryName: settings?.libraryName || "Libra",
     appTitle: settings?.appTitle || "Library Management",
     defaultLanguage: settings?.defaultLanguage || "en",
+    finePerDay: settings?.finePerDay ?? defaultFinePerDay,
     englishText: settings ? JSON.parse(settings.englishText) : {},
     amharicText: settings ? JSON.parse(settings.amharicText) : {},
   });
@@ -78,19 +79,31 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
     res.status(400).json({ error: "A valid login identifier and password are required." });
     return;
   }
-  const user = mode === "member"
-    ? (await prisma.patron.findFirst({
-      where: { active: true, OR: [
+  const normalizedEmail = loginIdentifier.toLowerCase();
+  const candidates = mode === "member"
+    ? (await prisma.patron.findMany({
+      where: { active: true, account: { isNot: null }, OR: [
         { memberCode: loginIdentifier },
-        { email: loginIdentifier.toLowerCase() },
+        { email: normalizedEmail },
+        { phone: loginIdentifier },
       ] },
       include: { account: { include: { patron: { select: { id: true, name: true, type: true, active: true } } } } },
-    }))?.account
-    : await prisma.user.findUnique({
-      where: { email: loginIdentifier.toLowerCase() },
+    })).flatMap((patron) => patron.account ? [patron.account] : [])
+    : await prisma.user.findMany({
+      where: { OR: [
+        { email: normalizedEmail },
+        { patron: { is: { phone: loginIdentifier } } },
+      ] },
       include: { patron: { select: { id: true, name: true, type: true, active: true } } },
     });
-  if (!user?.active || !(await bcrypt.compare(password, user.passwordHash))) {
+  let user: (typeof candidates)[number] | undefined;
+  for (const candidate of candidates) {
+    if (candidate.active && await bcrypt.compare(password, candidate.passwordHash)) {
+      user = candidate;
+      break;
+    }
+  }
+  if (!user) {
     res.status(401).json({ error: "Email or password is incorrect." });
     return;
   }
@@ -181,6 +194,7 @@ const getAdminSettings = settingsRoute(async (_req, res) => {
     libraryName: settings?.libraryName || "Libra",
     appTitle: settings?.appTitle || "Library Management",
     defaultLanguage: settings?.defaultLanguage || "en",
+    finePerDay: settings?.finePerDay ?? defaultFinePerDay,
     englishText: settings ? JSON.parse(settings.englishText) : {},
     amharicText: settings ? JSON.parse(settings.amharicText) : {},
   });
@@ -191,29 +205,36 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     res.status(400).json({ error: "A valid library settings object is required." });
     return;
   }
-  const { libraryName, appTitle } = req.body as { libraryName?: unknown; appTitle?: unknown };
+  const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
   if (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80 ||
       typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80) {
     res.status(400).json({ error: "Library name and app title must each contain 1–80 characters." });
     return;
   }
   const current = req.body.defaultLanguage === undefined
-    ? await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { defaultLanguage: true } })
+    ? await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { defaultLanguage: true, finePerDay: true } })
     : null;
   const defaultLanguage = req.body.defaultLanguage ?? current?.defaultLanguage ?? "en";
   if (defaultLanguage !== "en" && defaultLanguage !== "am") {
     res.status(400).json({ error: "Default language must be either 'en' or 'am'." });
     return;
   }
+  const currentFinePerDay = requestedFinePerDay === undefined
+    ? (current?.finePerDay ?? (await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { finePerDay: true } }))?.finePerDay ?? defaultFinePerDay)
+    : requestedFinePerDay;
+  if (typeof currentFinePerDay !== "number" || !Number.isFinite(currentFinePerDay) || currentFinePerDay < 0 || currentFinePerDay > 1_000_000) {
+    res.status(400).json({ error: "Fine amount per day must be between 0 and 1,000,000." });
+    return;
+  }
   const englishText = validateTranslationMap(req.body.englishText);
   const amharicText = validateTranslationMap(req.body.amharicText);
   const settings = await prisma.librarySetting.upsert({
     where: { id: "global" },
-    create: { id: "global", libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
-    update: { libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
+    create: { id: "global", libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
+    update: { libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
   });
   await audit(req, "UPDATE", "LIBRARY_SETTINGS", settings.id);
-  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, defaultLanguage: settings.defaultLanguage, englishText, amharicText });
+  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
 });
 
 app.route("/api/admin/settings")
@@ -242,17 +263,17 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     prisma.book.aggregate({ _sum: { availableCopies: true } }),
     prisma.patron.count({ where: { type: "STUDENT", active: true } }),
     prisma.loan.groupBy({ by: ["patronId"], where: { issuedAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) } } }),
-    prisma.loanItem.count({ where: { returnedAt: null } }),
-    prisma.loanItem.count({ where: { returnedAt: null, loan: { dueDate: { lt: today } } } }),
+    prisma.loanItem.count({ where: { bookId: { not: null }, returnedAt: null } }),
+    prisma.loanItem.count({ where: { bookId: { not: null }, returnedAt: null, loan: { dueDate: { lt: today } } } }),
     prisma.loanItem.findMany({
       take: 6, orderBy: { loan: { issuedAt: "desc" } },
-      include: { book: { select: { title: true, author: true } }, loan: { include: { patron: { select: { name: true } } } } },
+      include: { book: { select: { title: true, author: true } }, examSheet: { select: { title: true, subject: true } }, loan: { include: { patron: { select: { name: true } } } } },
     }),
     prisma.loanItem.groupBy({
-      by: ["bookId"], _count: { bookId: true }, where: { loan: { issuedAt: { gte: startMonth } } },
+      by: ["bookId"], _count: { bookId: true }, where: { bookId: { not: null }, loan: { issuedAt: { gte: startMonth } } },
       orderBy: { _count: { bookId: "desc" } }, take: 500,
     }),
-    prisma.loanItem.findMany({ where: { loan: { issuedAt: { gte: startMonth } } }, select: { loan: { select: { issuedAt: true } }, returnedAt: true } }),
+    prisma.loanItem.findMany({ where: { bookId: { not: null }, loan: { issuedAt: { gte: startMonth } } }, select: { loan: { select: { issuedAt: true } }, returnedAt: true } }),
     prisma.finePayment.aggregate({ _sum: { amount: true } }),
     prisma.book.groupBy({ by: ["category"], _sum: { copies: true } }),
   ]);
@@ -267,7 +288,8 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
       if (item.returnedAt) month.returned += 1;
     }
   }
-  const popularBooks = await prisma.book.findMany({ where: { id: { in: popularItems.map((item) => item.bookId) } }, select: { id: true, category: true } });
+  const popularBookIds = popularItems.flatMap((item) => item.bookId ? [item.bookId] : []);
+  const popularBooks = await prisma.book.findMany({ where: { id: { in: popularBookIds } }, select: { id: true, category: true } });
   const categoryTotals = new Map<string, number>();
   for (const item of popularItems) {
     const category = popularBooks.find((book) => book.id === item.bookId)?.category || "Other";
@@ -295,7 +317,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     categories,
     bookCategories,
     recentLoans: recent.map((item) => ({
-      id: item.id, title: item.book?.title ?? "Unknown book", author: item.book?.author ?? "", borrowerName: item.loan.patron?.name ?? "Unknown borrower",
+      id: item.id, title: item.book?.title ?? item.examSheet?.title ?? "Unknown item", author: item.book?.author ?? item.examSheet?.subject ?? "", borrowerName: item.loan.patron?.name ?? "Unknown borrower",
       dueDate: item.loan.dueDate.toISOString(), status: item.returnedAt ? "RETURNED" : item.loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
     })),
   });
@@ -366,6 +388,63 @@ app.delete("/api/books/:id", requireStaff, asyncRoute(async (req, res) => {
   if (await prisma.loanItem.count({ where: { bookId: book.id } })) { res.status(409).json({ error: "A book with circulation history cannot be deleted." }); return; }
   await prisma.book.delete({ where: { id: book.id } });
   await audit(req, "DELETE", "BOOK", book.id);
+  res.status(204).end();
+}));
+
+app.get("/api/exam-sheets", requireStaff, asyncRoute(async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const where: Prisma.ExamSheetWhereInput = search ? { OR: [
+    { title: { contains: search } }, { subject: { contains: search } }, { grade: { contains: search } },
+  ] } : {};
+  res.json(await prisma.examSheet.findMany({ where, orderBy: { title: "asc" }, take: 500 }));
+}));
+
+app.post("/api/exam-sheets", requireStaff, asyncRoute(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  if (!requiredText(body.title)) { res.status(400).json({ error: "Exam sheet title is required." }); return; }
+  const copies = body.copies === undefined ? 1 : positiveInteger(body.copies, NaN);
+  if (!Number.isInteger(copies)) { res.status(400).json({ error: "Copies must be a positive whole number." }); return; }
+  const examSheet = await prisma.examSheet.create({ data: {
+    title: body.title.trim(), subject: optionalText(body.subject), grade: optionalText(body.grade),
+    examYear: optionalYear(body.examYear), description: optionalText(body.description), copies, availableCopies: copies,
+  } });
+  await audit(req, "CREATE", "EXAM_SHEET", examSheet.id);
+  res.status(201).json(examSheet);
+}));
+
+app.put("/api/exam-sheets/:id", requireStaff, asyncRoute(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const current = await prisma.examSheet.findUnique({ where: { id: req.params.id } });
+  if (!current) { res.status(404).json({ error: "Exam sheet not found." }); return; }
+  const data: Prisma.ExamSheetUpdateInput = {};
+  for (const key of ["title", "subject", "grade", "description"] as const) {
+    if (key in body) {
+      if (key === "title" && !requiredText(body[key])) { res.status(400).json({ error: "Exam sheet title is required." }); return; }
+      Object.assign(data, { [key]: optionalText(body[key]) });
+    }
+  }
+  if ("examYear" in body) data.examYear = optionalYear(body.examYear);
+  if ("copies" in body) {
+    const copies = positiveInteger(body.copies, NaN);
+    if (!Number.isInteger(copies) || copies < current.copies - current.availableCopies) {
+      res.status(400).json({ error: "Total copies cannot be lower than the number currently on loan." });
+      return;
+    }
+    data.copies = copies;
+    data.availableCopies = current.availableCopies + copies - current.copies;
+  }
+  const examSheet = await prisma.examSheet.update({ where: { id: current.id }, data });
+  await audit(req, "UPDATE", "EXAM_SHEET", examSheet.id);
+  res.json(examSheet);
+}));
+
+app.delete("/api/exam-sheets/:id", requireStaff, asyncRoute(async (req, res) => {
+  const examSheet = await prisma.examSheet.findUnique({ where: { id: req.params.id } });
+  if (!examSheet) { res.status(404).json({ error: "Exam sheet not found." }); return; }
+  if (examSheet.availableCopies !== examSheet.copies) { res.status(409).json({ error: "An exam sheet with active loans cannot be deleted." }); return; }
+  if (await prisma.loanItem.count({ where: { examSheetId: examSheet.id } })) { res.status(409).json({ error: "An exam sheet with circulation history cannot be deleted." }); return; }
+  await prisma.examSheet.delete({ where: { id: examSheet.id } });
+  await audit(req, "DELETE", "EXAM_SHEET", examSheet.id);
   res.status(204).end();
 }));
 
@@ -550,6 +629,7 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
   } : {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  const finePerDay = await getFinePerDay();
   const loans = await prisma.loan.findMany({
     where: {
       ...borrowerWhere,
@@ -557,17 +637,20 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
       ...(status === "OVERDUE" ? { status: "ACTIVE", dueDate: { lt: today } } :
         status === "ACTIVE" ? { status: "ACTIVE" } : {}),
     },
-    include: { patron: { select: { name: true, memberCode: true } }, loanItems: { include: { book: { select: { title: true, author: true } }, payments: true } } },
+    include: { patron: { select: { name: true, memberCode: true } }, loanItems: { include: { book: { select: { title: true, author: true } }, examSheet: { select: { title: true, subject: true } }, payments: true } } },
     orderBy: { issuedAt: "desc" }, take: 500,
   });
-  const items = loans.flatMap((loan) => loan.loanItems.map((item) => ({
-    id: item.id, loanItemId: item.id, loanId: loan.id, title: item.book?.title ?? "Unknown book", author: item.book?.author ?? "",
-    borrowerName: loan.patron?.name ?? "Unknown borrower", memberCode: loan.patron?.memberCode ?? "", borrowerType: loan.borrowerType, dueDate: loan.dueDate.toISOString(),
-    returnedAt: item.returnedAt?.toISOString() || null, status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
-    fine: Number(item.fine),
-    finePaid: item.payments.reduce((sum, payment) => sum + Number(payment.amount), 0),
-    fineRemaining: Math.max(0, Number(item.fine) - item.payments.reduce((sum, payment) => sum + Number(payment.amount), 0)),
-  })));
+  const items = loans.flatMap((loan) => loan.loanItems.map((item) => {
+    const paid = item.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const fine = calculateCurrentFine(Number(item.fine), loan.dueDate, item.returnedAt, finePerDay, today);
+    return {
+      id: item.id, loanItemId: item.id, loanId: loan.id, itemType: item.bookId ? "BOOK" : "EXAM_SHEET",
+      title: item.book?.title ?? item.examSheet?.title ?? "Unknown item", author: item.book?.author ?? item.examSheet?.subject ?? "",
+      borrowerName: loan.patron?.name ?? "Unknown borrower", memberCode: loan.patron?.memberCode ?? "", borrowerType: loan.borrowerType, dueDate: loan.dueDate.toISOString(),
+      returnedAt: item.returnedAt?.toISOString() || null, status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
+      fine, finePaid: paid, fineRemaining: Math.max(0, fine - paid),
+    };
+  }));
   res.json(status === "RETURNED" ? items.filter((item) => item.status === "RETURNED") :
     status === "ACTIVE" || status === "OVERDUE" ? items.filter((item) => item.status !== "RETURNED") : items);
 }));
@@ -642,7 +725,11 @@ const deleteResolvedBorrowing = asyncRoute(async (req, res) => {
       throw new ApiError(409, "Records with outstanding fines or payment history cannot be deleted.");
     }
     if (!current.returnedAt) {
-      await transaction.book.update({ where: { id: current.bookId }, data: { availableCopies: { increment: 1 } } });
+      if (current.bookId) {
+        await transaction.book.update({ where: { id: current.bookId }, data: { availableCopies: { increment: 1 } } });
+      } else if (current.examSheetId) {
+        await transaction.examSheet.update({ where: { id: current.examSheetId }, data: { availableCopies: { increment: 1 } } });
+      }
     }
     await transaction.loanItem.delete({ where: { id: current.id } });
     if (!(await transaction.loanItem.count({ where: { loanId: current.loanId } }))) {
@@ -662,28 +749,28 @@ app.get("/api/portal/loans", asyncRoute(async (req, res) => {
   if (!patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }
   const loans = await prisma.loan.findMany({
     where: { patronId },
-    include: { loanItems: { include: { book: { select: { title: true, author: true } }, payments: true } } },
+    include: { loanItems: { include: { book: { select: { title: true, author: true } }, examSheet: { select: { title: true, subject: true } }, payments: true } } },
     orderBy: { issuedAt: "desc" },
     take: 200,
   });
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  const finePerDay = await getFinePerDay();
   res.json(loans.flatMap((loan) => loan.loanItems.map((item) => {
-    const fine = Number(item.fine);
+    const fine = calculateCurrentFine(Number(item.fine), loan.dueDate, item.returnedAt, finePerDay, today);
     const paid = item.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-    const overdueDays = item.returnedAt ? 0 : Math.max(0, Math.floor((today.getTime() - new Date(loan.dueDate).setUTCHours(0, 0, 0, 0)) / 86_400_000));
-    const assessedFine = Math.max(fine, roundMoney(overdueDays * finePerDay));
     return {
       id: item.id,
       loanId: loan.id,
-      title: item.book?.title ?? "Unknown book",
-      author: item.book?.author ?? "",
+      itemType: item.bookId ? "BOOK" : "EXAM_SHEET",
+      title: item.book?.title ?? item.examSheet?.title ?? "Unknown item",
+      author: item.book?.author ?? item.examSheet?.subject ?? "",
       issuedAt: loan.issuedAt.toISOString(),
       dueDate: loan.dueDate.toISOString(),
       returnedAt: item.returnedAt?.toISOString() || null,
       status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
-      fine: assessedFine,
-      fineRemaining: Math.max(0, roundMoney(assessedFine - paid)),
+      fine,
+      fineRemaining: Math.max(0, roundMoney(fine - paid)),
     };
   })));
 }));
@@ -835,29 +922,52 @@ app.post("/api/notifications/overdue/run", requireAdmin, asyncRoute(async (_req,
 }));
 
 app.post("/api/loans", asyncRoute(async (req, res) => {
-  const { patronId, patronType, bookIds, dueDate } = req.body as { patronId?: string; patronType?: string; bookIds?: string[]; dueDate?: string };
+  const { patronId, patronType, bookIds, dueDate } = req.body as { patronId?: unknown; patronType?: unknown; bookIds?: unknown; dueDate?: unknown; items?: unknown };
+  const rawItems: unknown = req.body.items;
+  const requestedItems: { type: unknown; id: unknown }[] = Array.isArray(rawItems)
+    ? rawItems.flatMap((rawItem: unknown) => {
+      if (!rawItem || typeof rawItem !== "object") return [];
+      const item = rawItem as Record<string, unknown>;
+      return [{ type: item.type, id: item.id }];
+    })
+    : Array.isArray(bookIds) ? bookIds.map((id: unknown) => ({ type: "BOOK", id })) : [];
   const earliestDueDate = new Date();
   earliestDueDate.setUTCHours(0, 0, 0, 0);
-  if (!patronId || !Array.isArray(bookIds) || bookIds.length < 1 || bookIds.length > 20 || !dueDate || Number.isNaN(Date.parse(dueDate)) || Date.parse(dueDate) < earliestDueDate.getTime()) {
-    res.status(400).json({ error: "A borrower, 1–20 books, and a valid due date are required." });
+  if (typeof patronId !== "string" || !patronId || requestedItems.length < 1 || requestedItems.length > 20 || typeof dueDate !== "string" || !dueDate || Number.isNaN(Date.parse(dueDate)) || Date.parse(dueDate) < earliestDueDate.getTime()) {
+    res.status(400).json({ error: "A borrower, 1–20 items, and a valid due date are required." });
     return;
   }
   if (patronType !== "STUDENT" && patronType !== "TEACHER") {
     res.status(400).json({ error: "Invalid patron type." });
     return;
   }
-  if (new Set(bookIds).size !== bookIds.length) { res.status(400).json({ error: "A book may only be selected once per transaction." }); return; }
+  if (requestedItems.some((item) => (item.type !== "BOOK" && item.type !== "EXAM_SHEET") || typeof item.id !== "string" || !item.id)) {
+    res.status(400).json({ error: "Each loan item must identify a valid book or exam sheet." });
+    return;
+  }
+  const uniqueKeys = requestedItems.map((item) => `${item.type}:${item.id}`);
+  if (new Set(uniqueKeys).size !== uniqueKeys.length) { res.status(400).json({ error: "An item may only be selected once per transaction." }); return; }
   const loan = await prisma.$transaction(async (transaction) => {
     const patron = await transaction.patron.findFirst({ where: { id: patronId, active: true } });
     if (!patron) throw new ApiError(404, "Active patron not found.");
     if (patron.type !== patronType) throw new ApiError(409, `This borrowing is restricted to ${patronType.toLowerCase()} patrons.`);
-    for (const bookId of bookIds) {
-      const updated = await transaction.book.updateMany({ where: { id: bookId, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
-      if (!updated.count) throw new ApiError(409, `Book ${bookId} is unavailable.`);
+    for (const item of requestedItems) {
+      if (item.type === "BOOK") {
+        const updated = await transaction.book.updateMany({ where: { id: item.id as string, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
+        if (!updated.count) throw new ApiError(409, `Book ${item.id} is unavailable.`);
+      } else {
+        const updated = await transaction.examSheet.updateMany({ where: { id: item.id as string, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
+        if (!updated.count) throw new ApiError(409, `Exam sheet ${item.id} is unavailable.`);
+      }
     }
-    return transaction.loan.create({ data: { patronId, borrowerType: patron.type, dueDate: new Date(dueDate), loanItems: { create: bookIds.map((bookId) => ({ bookId })) } }, include: { loanItems: true } });
+    return transaction.loan.create({
+      data: {
+        patronId, borrowerType: patron.type, dueDate: new Date(dueDate),
+        loanItems: { create: requestedItems.map((item) => item.type === "BOOK" ? { bookId: item.id as string } : { examSheetId: item.id as string }) },
+      }, include: { loanItems: true },
+    });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  await audit(req, "CREATE", "LOAN", loan.id, { bookCount: bookIds.length });
+  await audit(req, "CREATE", "LOAN", loan.id, { itemCount: requestedItems.length });
   res.status(201).json(loan);
 }));
 
@@ -900,12 +1010,17 @@ app.post("/api/loans/scan/return", asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/loans/items/:id/fines/pay", asyncRoute(async (req, res) => {
-  const amount = Number(req.body.amount);
+  const amount = roundMoney(Number(req.body.amount));
   if (!Number.isFinite(amount) || amount <= 0) { res.status(400).json({ error: "Payment must be a positive amount." }); return; }
+  const finePerDay = await getFinePerDay();
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
   const payment = await prisma.$transaction(async (transaction) => {
-    const item = await transaction.loanItem.findUnique({ where: { id: req.params.id }, include: { payments: true } });
+    const item = await transaction.loanItem.findUnique({ where: { id: req.params.id }, include: { payments: true, loan: true } });
     if (!item) throw new ApiError(404, "Loan item not found.");
-    const balance = Number(item.fine) - item.payments.reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const fine = calculateCurrentFine(Number(item.fine), item.loan.dueDate, item.returnedAt, finePerDay, today);
+    if (fine > Number(item.fine)) await transaction.loanItem.update({ where: { id: item.id }, data: { fine } });
+    const balance = fine - item.payments.reduce((sum, entry) => sum + Number(entry.amount), 0);
     if (amount > balance) throw new ApiError(409, "Payment cannot exceed the outstanding fine.");
     return transaction.finePayment.create({ data: { loanItemId: item.id, amount: roundMoney(amount), receivedById: req.user!.id } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -1140,17 +1255,29 @@ function optionalMoney(value: unknown): number | undefined {
 function roundMoney(amount: number): number {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
+async function getFinePerDay(): Promise<number> {
+  const settings = await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { finePerDay: true } });
+  return settings?.finePerDay ?? defaultFinePerDay;
+}
+function calculateCurrentFine(recordedFine: number, dueDate: Date, returnedAt: Date | null, finePerDay: number, today: Date): number {
+  if (returnedAt) return recordedFine;
+  const dueDay = new Date(dueDate);
+  dueDay.setUTCHours(0, 0, 0, 0);
+  const overdueDays = Math.max(0, Math.floor((today.getTime() - dueDay.getTime()) / 86_400_000));
+  return Math.max(recordedFine, roundMoney(overdueDays * finePerDay));
+}
 async function returnLoanItem(id: string) {
   const [returned] = await returnLoanItems([id]);
   return returned;
 }
 async function returnLoanItems(ids: string[]) {
+  const finePerDay = await getFinePerDay();
   return prisma.$transaction(async (transaction) => {
     const returned = [];
     for (const id of ids) {
       const current = await transaction.loanItem.findUnique({ where: { id }, include: { loan: true } });
       if (!current) throw new ApiError(404, "Loan item not found.");
-      if (current.returnedAt) throw new ApiError(409, "This book has already been returned.");
+      if (current.returnedAt) throw new ApiError(409, "This item has already been returned.");
       const returnedAt = new Date();
       const today = new Date(returnedAt);
       const dueDay = new Date(current.loan.dueDate);
@@ -1161,7 +1288,11 @@ async function returnLoanItems(ids: string[]) {
         where: { id: current.id },
         data: { returnedAt, fine: roundMoney(daysLate * finePerDay) },
       });
-      await transaction.book.update({ where: { id: current.bookId }, data: { availableCopies: { increment: 1 } } });
+      if (current.bookId) {
+        await transaction.book.update({ where: { id: current.bookId }, data: { availableCopies: { increment: 1 } } });
+      } else if (current.examSheetId) {
+        await transaction.examSheet.update({ where: { id: current.examSheetId }, data: { availableCopies: { increment: 1 } } });
+      }
       const remaining = await transaction.loanItem.count({ where: { loanId: current.loanId, returnedAt: null } });
       if (!remaining) await transaction.loan.update({ where: { id: current.loanId }, data: { status: "RETURNED" } });
       returned.push(updated);
@@ -1239,7 +1370,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 async function start() {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error("Set JWT_SECRET to a random secret of at least 32 characters.");
-  if (!Number.isFinite(finePerDay) || finePerDay < 0) throw new Error("FINE_PER_DAY must be a non-negative number.");
+  if (!Number.isFinite(defaultFinePerDay) || defaultFinePerDay < 0) throw new Error("FINE_PER_DAY must be a non-negative number.");
   await mkdir(uploadDirectory, { recursive: true });
   app.listen(port, () => {
     console.log(`Library API listening on http://localhost:${port}`);

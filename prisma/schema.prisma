@@ -79,6 +79,23 @@ model Book {
   @@index([category])
 }
 
+model ExamSheet {
+  id              String     @id @default(cuid())
+  title           String
+  subject         String?
+  grade           String?
+  examYear        Int?
+  copies          Int        @default(1)
+  availableCopies Int        @default(1)
+  description     String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  loanItems       LoanItem[]
+
+  @@index([title])
+  @@index([subject])
+}
+
 model Patron {
   id          String     @id @default(cuid())
   memberCode  String     @unique
@@ -118,19 +135,22 @@ model Loan {
 }
 
 model LoanItem {
-  id         String    @id @default(cuid())
-  loanId     String
-  loan       Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  bookId     String
-  book       Book      @relation(fields: [bookId], references: [id], onDelete: Restrict)
-  returnedAt DateTime?
-  fine Float @default(0)
-  createdAt  DateTime  @default(now())
+  id          String     @id @default(cuid())
+  loanId      String
+  loan        Loan       @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  bookId      String?
+  book        Book?      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  examSheetId String?
+  examSheet   ExamSheet? @relation(fields: [examSheetId], references: [id], onDelete: Restrict)
+  returnedAt  DateTime?
+  fine        Float      @default(0)
+  createdAt   DateTime   @default(now())
   payments   FinePayment[]
   reminders  OverdueReminder[]
 
   @@index([loanId])
   @@index([bookId, returnedAt])
+  @@index([examSheetId, returnedAt])
 }
 
 model BookReservation {
@@ -210,6 +230,7 @@ model LibrarySetting {
   libraryName     String   @default("Libra")
   appTitle        String   @default("Library Management")
   defaultLanguage String   @default("en")
+  finePerDay      Float    @default(5)
   englishText     String   @default("{}")
   amharicText     String   @default("{}")
   updatedAt       DateTime @updatedAt

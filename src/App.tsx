@@ -169,30 +169,6 @@ const secureFileUrl = (value: unknown) => {
     return "";
   }
 };
-async function openPdfInNewTab(record: Row): Promise<boolean> {
-  const filePath = toText(record.filePath || record.url);
-  const mimeType = toText(record.mimeType).toLowerCase();
-  const isPdf = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
-  if (!isPdf) return false;
-
-  const secureUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
-  if (secureUrl) {
-    window.open(secureUrl, "_blank");
-    return true;
-  }
-
-  const tab = window.open("about:blank", "_blank");
-  if (!tab) throw new Error("Allow pop-ups to open PDF files.");
-  tab.opener = null;
-  try {
-    const file = await download(`/media/${record.id}/file`);
-    tab.location.href = URL.createObjectURL(file);
-  } catch (cause) {
-    tab.close();
-    throw cause;
-  }
-  return true;
-}
 const toFiniteNumber = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -903,7 +879,6 @@ function App() {
   async function previewMedia(record: Row) {
     setError("");
     try {
-      if (await openPdfInNewTab(record)) return;
       const storedUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
       const filePath = toText(record.filePath || record.url);
       const url = storedUrl || URL.createObjectURL(await download(`/media/${record.id}/file`));
@@ -1180,7 +1155,7 @@ function App() {
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} />}
         {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} libraryName={librarySettings.libraryName} t={t} />}
-        {page === "examSheets" && <ExamSheetsPage records={visibleRecords} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
+        {page === "examSheets" && <ExamSheetsPage records={visibleRecords} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t} onOpenFile={previewMedia}
           onCreate={startCreate} onEdit={startEdit} onDelete={deleteRecord} />}
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
@@ -1441,7 +1416,6 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   async function openMedia(item: Row) {
     setError("");
     try {
-      if (await openPdfInNewTab(item)) return;
       if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
       const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
       const filePath = toText(item.filePath || item.url);
@@ -1509,7 +1483,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
               {toText(item.description) && <p className="portal-book-description">{toText(item.description)}</p>}
               {isBook && toText(item.shelfLocation) && <div className="portal-shelf">{t("shelfLocation")}: {toText(item.shelfLocation)}</div>}
               <div className="portal-availability"><span className={`availability-dot ${Number(item.availableCopies) > 0 ? "in-stock" : ""}`} />{Number(item.availableCopies) > 0 ? `${toText(item.availableCopies)} ${t("availableCopiesLabel")}` : t("unavailable")}</div>
-              {fileUrl && <a className="button" href={fileUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
+              {fileUrl && <button className="button" onClick={() => void openMedia({ ...item, mediaType: "PDF" })}><ExternalLink size={13} />{t("openFile")}</button>}
               <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === item.id} onClick={() => void requestReservation(item.catalogType, item.id)}>
                 {busyReservation === item.id ? t("loading") : activeRequest ? t("requestPending") : t("requestReservation")}
               </button>
@@ -1908,7 +1882,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
             <div className="record-card-details">{recordDetails.map(([key, label]) => <div className="record-card-detail" key={key}>
               <span>{t(label)}</span><strong>{key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : toText(record[key]) || "—"}</strong>
             </div>)}</div>
-            {secureFileUrl(record.filePath) && <a className="button record-card-file" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
+            {secureFileUrl(record.filePath) && <button className="button record-card-file" onClick={() => onPreview({ ...record, mediaType: "PDF" })}><ExternalLink size={13} />{t("openFile")}</button>}
             <div className="record-card-actions">
               {isMedia ? <>
                 <button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button>
@@ -1939,8 +1913,8 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <a href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <a className="row-action" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer" title={t("openFile")} aria-label={t("openFile")}><ExternalLink size={14} /></a>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <button className="row-action" title={t("openFile")} aria-label={t("openFile")} onClick={() => onPreview({ ...record, mediaType: "PDF" })}><ExternalLink size={14} /></button>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : libraryName}</span></div>

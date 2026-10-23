@@ -102,6 +102,7 @@ button { cursor: pointer; }
 .book-cover { flex-shrink: 0; height: 32px; width: 24px; border-radius: 3px; display: grid; place-items: center; color: #fff; background: #6d8f7c; font-family: Georgia, serif; font-size: 10px; box-shadow: inset -3px 0 rgba(0,0,0,.08); }
 .book-title { color: #3b4748; font-size: 10px; font-weight: 600; }
 .book-meta { color: #a4abad; font-size: 8px; margin-top: 4px; }
+.book-file-link { display: block; margin-top: 5px; padding: 0; border: 0; color: #43806a; background: transparent; font-size: 9px; cursor: pointer; }
 .status-pill { display: inline-flex; padding: 4px 7px; border-radius: 11px; font-size: 8px; font-weight: 600; white-space: nowrap; }
 .status-available,.status-returned { color: #4d8b69; background: #edf6ef; }
 .status-borrowed,.status-checked-out { color: #bd8748; background: #fbf4e9; }

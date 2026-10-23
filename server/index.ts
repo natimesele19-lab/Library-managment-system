@@ -271,7 +271,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
   const startMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
   const [totalBooks, totalExamSheets, available, activeStudents, borrowersThisMonth, activeItems, overdueItems, recent, popularItems, returnedRecent, paidFine, bookCategoryGroups] = await Promise.all([
     prisma.book.aggregate({ _sum: { copies: true } }),
-    prisma.examSheet.count(),
+    prisma.examSheet.aggregate({ _sum: { copies: true } }),
     prisma.book.aggregate({ _sum: { availableCopies: true } }),
     prisma.patron.count({ where: { type: "STUDENT", active: true } }),
     prisma.loan.groupBy({ by: ["patronId"], where: { issuedAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) } } }),
@@ -319,7 +319,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   res.json({
     totalBooks: totalBooks._sum.copies || 0,
-    totalExamSheets,
+    totalExamSheets: totalExamSheets._sum.copies || 0,
     availableBooks: available._sum.availableCopies || 0,
     borrowedBooks: activeItems,
     activeStudents,

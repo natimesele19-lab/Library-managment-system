@@ -24,7 +24,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - English and Amharic interface with persisted language preference.
 - Authenticated librarian/admin workspace, role-aware API, request throttling for sign-in, and audit logs.
 - Dashboard statistics, monthly circulation trends, category summaries, and recent activity.
-- Dashboard and reports include separate book-copy and exam-sheet record totals.
+- Dashboard and reports include total book copies and total exam-sheet copies.
 - Automatically caches successfully loaded dashboard and data-view responses in browser storage for offline access; views without an initial cache use empty collections and zeroed dashboard metrics.
 - Searchable Books, Exam Sheets, student, teacher, and staff media listings with Grid/List view controls; inventory tracking; and student and teacher portals with a combined book/exam-sheet catalog, item-type filters, a dedicated Digital Media tab, and reservation requests for either item type. Digital media uploads and XLSX/DOCX import and export are supported. DOCX imports require a table whose first row contains the exported field names. XLSX uses the patched official SheetJS 0.20.3 release from the SheetJS CDN; the outdated npm registry package is intentionally not used.
 - Multi-book circulation transactions and per-book return processing with configurable daily late fees (`FINE_PER_DAY`, default 5 ETB).

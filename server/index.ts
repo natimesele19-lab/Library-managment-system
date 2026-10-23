@@ -825,7 +825,10 @@ app.get("/api/portal/reservations", asyncRoute(async (req, res) => {
   if (!patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }
   const reservations = await prisma.bookReservation.findMany({
     where: { patronId },
-    include: { book: { select: { id: true, title: true, author: true, availableCopies: true, category: true } } },
+    include: {
+      book: { select: { id: true, title: true, author: true, availableCopies: true, category: true } },
+      examSheet: { select: { id: true, title: true, subject: true, grade: true, examYear: true, availableCopies: true } },
+    },
     orderBy: { requestedAt: "desc" },
     take: 200,
   });
@@ -835,17 +838,38 @@ app.get("/api/portal/reservations", asyncRoute(async (req, res) => {
 app.post("/api/portal/reservations", asyncRoute(async (req, res) => {
   const patronId = req.user?.patronId;
   const bookId = typeof req.body.bookId === "string" ? req.body.bookId.trim() : "";
-  if (!patronId || !bookId) { res.status(400).json({ error: "A book is required to place a reservation request." }); return; }
-  const [book, previousRequest] = await Promise.all([
-    prisma.book.findUnique({ where: { id: bookId }, select: { id: true } }),
-    prisma.bookReservation.findFirst({
-      where: { patronId, bookId, status: { in: ["REQUESTED", "RESERVED"] } },
-      select: { id: true },
-    }),
-  ]);
-  if (!book) { res.status(404).json({ error: "Book not found." }); return; }
-  if (previousRequest) { res.status(409).json({ error: "You already have an active request for this book." }); return; }
-  const reservation = await prisma.bookReservation.create({ data: { patronId, bookId }, include: { book: { select: { title: true, author: true } } } });
+  const examSheetId = typeof req.body.examSheetId === "string" ? req.body.examSheetId.trim() : "";
+  if (!patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }
+  if (Boolean(bookId) === Boolean(examSheetId)) {
+    res.status(400).json({ error: "Choose one book or exam sheet to place a reservation request." });
+    return;
+  }
+  const isBook = Boolean(bookId);
+  const itemId = bookId || examSheetId;
+  const [item, previousRequest] = isBook
+    ? await Promise.all([
+      prisma.book.findUnique({ where: { id: itemId }, select: { id: true } }),
+      prisma.bookReservation.findFirst({
+        where: { patronId, bookId: itemId, status: { in: ["REQUESTED", "RESERVED"] } },
+        select: { id: true },
+      }),
+    ])
+    : await Promise.all([
+      prisma.examSheet.findUnique({ where: { id: itemId }, select: { id: true } }),
+      prisma.bookReservation.findFirst({
+        where: { patronId, examSheetId: itemId, status: { in: ["REQUESTED", "RESERVED"] } },
+        select: { id: true },
+      }),
+    ]);
+  if (!item) { res.status(404).json({ error: isBook ? "Book not found." : "Exam sheet not found." }); return; }
+  if (previousRequest) { res.status(409).json({ error: "You already have an active request for this item." }); return; }
+  const reservation = await prisma.bookReservation.create({
+    data: { patronId, ...(isBook ? { bookId } : { examSheetId }) },
+    include: {
+      book: { select: { id: true, title: true, author: true } },
+      examSheet: { select: { id: true, title: true, subject: true } },
+    },
+  });
   res.status(201).json(reservation);
 }));
 
@@ -862,7 +886,11 @@ app.post("/api/portal/reservations/:id/cancel", asyncRoute(async (req, res) => {
 
 app.get("/api/reservations", requireStaff, asyncRoute(async (_req, res) => {
   res.json(await prisma.bookReservation.findMany({
-    include: { patron: { select: { name: true, memberCode: true, email: true } }, book: { select: { title: true, author: true } } },
+    include: {
+      patron: { select: { name: true, memberCode: true, email: true } },
+      book: { select: { id: true, title: true, author: true } },
+      examSheet: { select: { id: true, title: true, subject: true } },
+    },
     orderBy: { requestedAt: "asc" },
     take: 500,
   }));
@@ -912,25 +940,40 @@ app.put("/api/reservations/:id", requireStaff, asyncRoute(async (req, res) => {
     const result = await prisma.$transaction(async (transaction) => {
       const existing = await transaction.bookReservation.findUnique({
         where: { id: req.params.id },
-        include: { patron: { select: { id: true, name: true, memberCode: true, type: true, active: true } }, book: { select: { id: true, title: true } } },
+        include: {
+          patron: { select: { id: true, name: true, memberCode: true, type: true, active: true } },
+          book: { select: { id: true, title: true } },
+          examSheet: { select: { id: true, title: true } },
+        },
       });
       if (!existing) throw new ApiError(404, "Reservation not found.");
       if (existing.status !== "REQUESTED" && existing.status !== "RESERVED") {
         throw new ApiError(409, `Reservation cannot be issued from ${existing.status}.`);
       }
       if (!existing.patron.active) throw new ApiError(409, "An inactive patron cannot receive a loan.");
-      const inventoryUpdate = await transaction.book.updateMany({
-        where: { id: existing.bookId, availableCopies: { gt: 0 } },
-        data: { availableCopies: { decrement: 1 } },
-      });
-      if (!inventoryUpdate.count) throw new ApiError(409, "This book is no longer available to issue.");
+      const itemId = existing.bookId || existing.examSheetId;
+      if (!itemId) throw new ApiError(409, "The reserved item is missing.");
+      const isBook = Boolean(existing.bookId);
+      const inventoryUpdate = isBook
+        ? await transaction.book.updateMany({
+          where: { id: itemId, availableCopies: { gt: 0 } },
+          data: { availableCopies: { decrement: 1 } },
+        })
+        : await transaction.examSheet.updateMany({
+          where: { id: itemId, availableCopies: { gt: 0 } },
+          data: { availableCopies: { decrement: 1 } },
+        });
+      if (!inventoryUpdate.count) throw new ApiError(409, "This item is no longer available to issue.");
       const reservationUpdate = await transaction.bookReservation.updateMany({
         where: { id: existing.id, status: existing.status },
         data: { status: "FULFILLED" },
       });
       if (!reservationUpdate.count) throw new ApiError(409, "Reservation status changed; reload and try again.");
       const loan = await transaction.loan.create({
-        data: { patronId: existing.patronId, borrowerType: existing.patron.type, dueDate, loanItems: { create: [{ bookId: existing.bookId }] } },
+        data: {
+          patronId: existing.patronId, borrowerType: existing.patron.type, dueDate,
+          loanItems: { create: [isBook ? { bookId: itemId } : { examSheetId: itemId }] },
+        },
         include: { loanItems: true },
       });
       return { reservation: existing, loan };
@@ -956,7 +999,11 @@ app.put("/api/reservations/:id", requireStaff, asyncRoute(async (req, res) => {
   if (!update.count) { res.status(409).json({ error: "Reservation status changed; reload and try again." }); return; }
   const reservation = await prisma.bookReservation.findUniqueOrThrow({
     where: { id: existing.id },
-    include: { patron: { select: { name: true, memberCode: true } }, book: { select: { title: true } } },
+    include: {
+      patron: { select: { name: true, memberCode: true } },
+      book: { select: { id: true, title: true, author: true } },
+      examSheet: { select: { id: true, title: true, subject: true } },
+    },
   });
   await audit(req, "UPDATE", "BOOK_RESERVATION", reservation.id, { status });
   res.json(reservation);

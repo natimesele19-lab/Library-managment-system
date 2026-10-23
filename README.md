@@ -61,7 +61,7 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | PUT, DELETE | `/api/patrons/:id` | Update and remove patrons; update accepts an optional portal `password` to set/reset credentials |
 | POST | `/api/patrons/:id/account` | Provision or reset a patron portal password (staff only) |
 | GET | `/api/portal/loans` | Read the signed-in patron's own active loans, accrued fines, and history |
-| GET, POST | `/api/portal/reservations` | Read the patron's reservations or submit a reservation request |
+| GET, POST | `/api/portal/reservations` | Read the patron's reservations or submit a book or exam-sheet reservation request |
 | POST | `/api/portal/reservations/:id/cancel` | Cancel the patron's own active reservation |
 | GET, PUT | `/api/reservations` | Staff reservation queue and status management; fulfilling a reservation atomically creates a loan and decrements book availability |
 | GET, POST | `/api/loans` | Search circulation history and issue multiple books |

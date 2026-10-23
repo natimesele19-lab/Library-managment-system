@@ -47,7 +47,7 @@ const EMPTY_STATS: Stats = {
 };
 type FormField = { id?: string; key: string; label: string; labelAm?: string | null; type: string; required?: boolean; entity?: string; placeholder?: string };
 type Account = { id: string; name: string; email: string; role: string; patronId?: string; patronType?: "STUDENT" | "TEACHER"; memberCode?: string };
-type PortalReservation = Row & { status: "REQUESTED" | "RESERVED" | "FULFILLED" | "CANCELLED"; book: Row };
+type PortalReservation = Row & { status: "REQUESTED" | "RESERVED" | "FULFILLED" | "CANCELLED"; book?: Row | null; examSheet?: Row | null; bookId?: string | null; examSheetId?: string | null };
 type StaffReservation = PortalReservation & { patron: Row };
 
 function savedAccount(): Account | null {
@@ -1354,12 +1354,12 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     ...examSheets.map((examSheet): Row & { catalogType: "EXAM_SHEET" } => ({ ...examSheet, catalogType: "EXAM_SHEET" })),
   ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
 
-  async function requestReservation(bookId: string) {
-    setBusyReservation(bookId);
+  async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
+    setBusyReservation(itemId);
     setError("");
     setSuccess("");
     try {
-      await api.post("/portal/reservations", { bookId });
+      await api.post("/portal/reservations", itemType === "BOOK" ? { bookId: itemId } : { examSheetId: itemId });
       setReservations(await api.get<PortalReservation[]>("/portal/reservations"));
       setSuccess(t("reservationRequested"));
     } catch (cause) {
@@ -1429,7 +1429,8 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><span>{catalogItems.length} {t("catalogItems").toLowerCase()}</span></section>
           {loading.catalog ? <div className="loading-state">{t("loading")}</div> : catalogItems.length ? <div className="portal-book-grid">{catalogItems.map((item) => {
             const isBook = item.catalogType === "BOOK";
-            const activeRequest = isBook ? activeReservations.find((reservation) => reservation.bookId === item.id) : undefined;
+            const activeRequest = activeReservations.find((reservation) =>
+              isBook ? reservation.bookId === item.id : reservation.examSheetId === item.id);
             const fileUrl = secureFileUrl(item.filePath);
             return <article className="panel portal-book" key={`${item.catalogType}:${item.id}`}>
               <div className="portal-book-cover">{isBook ? <BookOpen size={23} /> : <FileText size={23} />}</div>
@@ -1442,9 +1443,9 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
               {isBook && toText(item.shelfLocation) && <div className="portal-shelf">{t("shelfLocation")}: {toText(item.shelfLocation)}</div>}
               <div className="portal-availability"><span className={`availability-dot ${Number(item.availableCopies) > 0 ? "in-stock" : ""}`} />{Number(item.availableCopies) > 0 ? `${toText(item.availableCopies)} ${t("availableCopiesLabel")}` : t("unavailable")}</div>
               {fileUrl && <a className="button" href={fileUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
-              {isBook && <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === item.id} onClick={() => void requestReservation(item.id)}>
+              <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === item.id} onClick={() => void requestReservation(item.catalogType, item.id)}>
                 {busyReservation === item.id ? t("loading") : activeRequest ? t("requestPending") : t("requestReservation")}
-              </button>}
+              </button>
             </article>;
           })}</div> : <div className="panel empty-state">{t("noCatalogItems")}</div>}
           <PortalMediaSection media={media} loading={loading.media} onOpen={openMedia} t={t} />
@@ -1456,7 +1457,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
         {tab === "reservations" && <section className="panel">
           <div className="panel-head"><div><div className="panel-title">{t("myReservations")}</div><div className="panel-subtitle">{t("reservationHelp")}</div></div></div>
           {loading.reservations ? <div className="loading-state">{t("loading")}</div> : reservations.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>{t("id")}</th><th>{t("title")}</th><th>{t("author")}</th><th>{t("date")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
-            {reservations.map((reservation) => <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(reservation.book.title)}</td><td>{toText(reservation.book.author)}</td><td>{toText(reservation.requestedAt).slice(0, 10)}</td><td><Status value={reservation.status} t={t} /></td><td>{activeReservations.some((item) => item.id === reservation.id) && <button className="button" disabled={busyReservation === reservation.id} onClick={() => void cancelReservation(reservation.id)}>{t("cancelReservation")}</button>}</td></tr>)}
+            {reservations.map((reservation) => {
+              const item = reservation.book || reservation.examSheet;
+              return <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(item?.title)}</td><td>{toText(reservation.book?.author || reservation.examSheet?.subject)}</td><td>{toText(reservation.requestedAt).slice(0, 10)}</td><td><Status value={reservation.status} t={t} /></td><td>{activeReservations.some((active) => active.id === reservation.id) && <button className="button" disabled={busyReservation === reservation.id} onClick={() => void cancelReservation(reservation.id)}>{t("cancelReservation")}</button>}</td></tr>;
+            })}
           </tbody></table></div> : <div className="empty-state">{t("noReservations")}</div>}
         </section>}
       </div>
@@ -1570,7 +1574,7 @@ function ReservationsPage({ records, loading, query, setQuery, busy, libraryName
 }) {
   const search = query.trim().toLowerCase();
   const visible = records.filter((reservation) => !search ||
-    `${toText(reservation.patron?.name)} ${toText(reservation.book?.title)} ${reservation.status}`.toLowerCase().includes(search));
+    `${toText(reservation.patron?.name)} ${toText(reservation.book?.title || reservation.examSheet?.title)} ${reservation.status}`.toLowerCase().includes(search));
   return <>
     <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("adminSettings")}</div><h1 className="page-title">{t("reservationQueue")}</h1><p className="page-description">{t("reservationQueueHelp")}</p></div></div>
     <section className="panel">
@@ -1581,7 +1585,8 @@ function ReservationsPage({ records, loading, query, setQuery, busy, libraryName
       <div className="table-wrap"><table className="data-table reservation-table"><thead><tr><th>{t("id")}</th><th>{t("patron")}</th><th>{t("title")}</th><th>{t("requestDate")}</th><th>{t("status")}</th><th>{t("actions")}</th></tr></thead><tbody>
         {loading ? <tr><td colSpan={6}><div className="loading-state">{t("loading")}</div></td></tr> : visible.length ? visible.map((reservation) => {
           const active = reservation.status === "REQUESTED" || reservation.status === "RESERVED";
-          return <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(reservation.patron?.name) || "—"}</td><td>{toText(reservation.book?.title) || "—"}</td><td>{new Date(toText(reservation.requestedAt)).toLocaleDateString()}</td><td><Status value={reservation.status} t={t} /></td>
+          const item = reservation.book || reservation.examSheet;
+          return <tr key={reservation.id}><td>{reservation.id}</td><td>{toText(reservation.patron?.name) || "—"}</td><td>{toText(item?.title) || "—"}</td><td>{new Date(toText(reservation.requestedAt)).toLocaleDateString()}</td><td><Status value={reservation.status} t={t} /></td>
             <td><div className="reservation-actions">
               {reservation.status === "REQUESTED" && <button className="button" disabled={busy} onClick={() => onUpdate(reservation, "RESERVED")}>{t("approveReservation")}</button>}
               {active && <button className="button button-primary" disabled={busy} onClick={() => onUpdate(reservation, "FULFILLED")}>{t("approveAndIssue")}</button>}

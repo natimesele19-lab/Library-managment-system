@@ -25,21 +25,21 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Authenticated librarian/admin workspace, role-aware API, request throttling for sign-in, and audit logs.
 - Dashboard statistics, monthly circulation trends, category summaries, and recent activity.
 - Automatically caches successfully loaded dashboard and data-view responses in browser storage for offline access; views without an initial cache use empty collections and zeroed dashboard metrics.
-- Searchable book and patron catalogs, inventory tracking, digital media uploads, and XLSX/DOCX import and export. DOCX imports require a table whose first row contains the exported field names. XLSX uses the patched official SheetJS 0.20.3 release from the SheetJS CDN; the outdated npm registry package is intentionally not used.
+- Searchable book and patron catalogs, inventory tracking, a dedicated Digital Media tab in student and teacher portals, digital media uploads, and XLSX/DOCX import and export. DOCX imports require a table whose first row contains the exported field names. XLSX uses the patched official SheetJS 0.20.3 release from the SheetJS CDN; the outdated npm registry package is intentionally not used.
 - Multi-book circulation transactions and per-book return processing with configurable daily late fees (`FINE_PER_DAY`, default 5 ETB).
 - Dedicated active-returns workspace with borrower search, single returns, and atomic batch returns; each return updates availability and calculates late fees.
 - Admin-configurable library name, browser app title, and English/Amharic interface text, persisted in PostgreSQL.
 - Persistent global light/dark theme switch and animated page transitions.
 - Admin-managed additional fields for books, patrons, and inventory, stored as serialized JSON text separately from typed core fields; fines and asset values use PostgreSQL double-precision fields.
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
-- Protected, validated PDF/audio uploads and delivery; uploads are limited to PDF and common audio formats and 50 MB. XLSX/DOCX imports are capped at 5 MB and 5,000 rows.
-- Categorized digital resources (Textbooks, Reference, Fiction, Research Papers, Course Material, or Other), with media-type/category filters and staff deletion of both the media record and its uploaded file.
-- Staff-only Cloudinary uploads for supported image, PDF, and audio files; uploaded assets use public access so their returned secure URLs can be opened by users and stored with the relevant library record.
+- Validated PDF/audio uploads and delivery; uploads are limited to PDF and common audio formats and 50 MB. XLSX/DOCX imports are capped at 5 MB and 5,000 rows.
+- Categorized digital resources (Textbooks, Reference, Fiction, Research Papers, Course Material, or Other), searchable by students and teachers, with media-type/category filters and staff deletion of media records.
+- Staff-only Cloudinary uploads for supported image, PDF, and audio files; media, book, and exam-sheet records retain the complete secure URL for direct opening. Existing local media remains available through the API file-delivery fallback.
 - Camera-based QR/barcode scanning for checkout and returns (requires HTTPS or localhost and camera permission).
 - Daily overdue reminder emails with persisted per-book/per-day delivery records; configure SMTP to enable delivery.
 - Separate staff and student/teacher sign-in with distinct role tabs; members can use their member code or email and are restricted to their personal portal. Admins can set or reset a portal password while adding or editing a patron, or use the dedicated password action; member codes can be custom or auto-generated. Passwords are stored as hashes on linked portal accounts; there is no public account registration.
 - Member dashboard with active loans, due dates, currently accrued overdue fines, and returned-loan history; searchable catalog with online reservation requests and cancellation. Staff have a live-refreshing reservation queue to approve, issue (creating an active loan and updating book availability), or cancel requests.
-- Authenticated PDF and audio previews in the member portal, with the same staff-only restrictions applied to all library management views and APIs.
+- Student and teacher portals include a searchable Digital Media tab for linked books, exam sheets, PDFs, and other digital resources, with direct secure-URL previews for Cloudinary documents.
 
 ## API outline
 
@@ -71,16 +71,16 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | POST | `/api/loans/items/:id/fines/pay` | Record a fine payment |
 | GET, POST | `/api/inventory` | Browse and register assets |
 | PUT, DELETE | `/api/inventory/:id` | Update and remove assets |
-| GET | `/api/media` | List uploaded digital resources (staff and signed-in members) |
-| POST | `/api/media/upload` | Upload a PDF or audio resource with an optional category |
+| GET | `/api/media` | Search and list digital resources, including their complete secure file URLs (staff and signed-in members) |
+| POST | `/api/media/upload` | Upload a validated PDF or audio resource to Cloudinary with an optional category (staff only) |
 | POST | `/api/upload` | Upload an image, PDF, or audio file to Cloudinary and return its secure URL (staff only) |
-| DELETE | `/api/media/:id` | Delete a media resource and its stored file (staff only) |
-| GET | `/api/media/:id/file` | Authenticated media file delivery |
+| DELETE | `/api/media/:id` | Delete a media record and any legacy local file (staff only) |
+| GET | `/api/media/:id/file` | Authenticated legacy file delivery or redirect to its Cloudinary URL |
 | GET, POST | `/api/custom-fields` | Read fields or (admin only) add fields |
 | DELETE | `/api/custom-fields/:id` | Remove a field (admin only) |
 | GET | `/api/audit-logs` | Read audit history (admin only) |
 
-`npm run db:reset` drops all data in the configured PostgreSQL database and recreates the schema; use it only when you intend to reset the database. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `EMAIL_FROM` in `.env` to enable daily overdue reminders; reminders are skipped with an explicit warning if SMTP is not configured. Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `.env` to enable staff Cloudinary uploads. The client accepts `VITE_API_URL` as either the deployed API origin or its `/api` root; all frontend API requests, including borrowing and reservation deletes, use this centralized base URL. Configure `CLIENT_ORIGIN`, `UPLOAD_DIR`, and the database and signing secrets for the deployment environment. Store uploaded media on persistent private storage in production and back it up with the database. The browser-only document and spreadsheet parsers are build dependencies; the production API can be installed with `npm ci --omit=dev` after building the client and server.
+`npm run db:reset` drops all data in the configured PostgreSQL database and recreates the schema; use it only when you intend to reset the database. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `EMAIL_FROM` in `.env` to enable daily overdue reminders; reminders are skipped with an explicit warning if SMTP is not configured. Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `.env` to enable staff Cloudinary uploads. The client accepts `VITE_API_URL` as either the deployed API origin or its `/api` root; all frontend API requests, including borrowing and reservation deletes, use this centralized base URL. Configure `CLIENT_ORIGIN`, `UPLOAD_DIR` (for legacy local media), and the database and signing secrets for the deployment environment. Back up the database and Cloudinary assets separately. The browser-only document and spreadsheet parsers are build dependencies; the production API can be installed with `npm ci --omit=dev` after building the client and server.
 
 Existing databases must apply the `MediaAsset.category`, `LibrarySetting.defaultLanguage`, and `Patron.gender` schema additions before running the updated API. For this project’s local setup, run `npm run db:generate` followed by `npm run db:push`; migration-based deployments should apply the included migrations with `npx prisma migrate deploy`.
 

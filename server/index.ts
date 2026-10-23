@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import cors from "cors";
@@ -342,7 +342,7 @@ app.get("/api/books", asyncRoute(async (req, res) => {
   ] } : {};
   if (req.user?.role === "MEMBER") {
     const books = await prisma.book.findMany({
-      where, orderBy: { title: "asc" }, take: 500,
+      where, orderBy: { title: "asc" },
       select: { id: true, title: true, author: true, category: true, isbn: true, description: true, publisher: true, publishedYear: true, shelfLocation: true, filePath: true, availableCopies: true },
     });
     res.json(books);
@@ -424,7 +424,7 @@ app.get("/api/exam-sheets", asyncRoute(async (req, res) => {
   ] } : {};
   if (req.user.role === "MEMBER") {
     const examSheets = await prisma.examSheet.findMany({
-      where, orderBy: { title: "asc" }, take: 500,
+      where, orderBy: { title: "asc" },
       select: { id: true, title: true, subject: true, grade: true, examYear: true, description: true, filePath: true, availableCopies: true },
     });
     res.json(examSheets);
@@ -1175,19 +1175,6 @@ app.delete("/api/inventory/:id", asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => callback(null, uploadDirectory),
-  filename: (_req, file, callback) => callback(null, `${randomUUID()}${path.extname(file.originalname).toLowerCase()}`),
-});
-const upload = multer({
-  storage, limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (_req, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-    const allowed = [".pdf", ".mp3", ".wav", ".m4a", ".ogg"];
-    if (!allowed.includes(extension)) { callback(new ApiError(400, "Only PDF and supported audio files can be uploaded.")); return; }
-    callback(null, true);
-  },
-});
 const cloudinaryFileTypes: Record<string, string[]> = {
   ".jpg": ["image/jpeg"],
   ".jpeg": ["image/jpeg"],
@@ -1269,7 +1256,7 @@ app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRout
 
 app.get("/api/media", asyncRoute(async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
-  res.json(await prisma.mediaAsset.findMany({
+  const records = await prisma.mediaAsset.findMany({
     where: search ? { OR: [
       { title: { contains: search, mode: "insensitive" } },
       { author: { contains: search, mode: "insensitive" } },
@@ -1277,52 +1264,63 @@ app.get("/api/media", asyncRoute(async (req, res) => {
       { mediaType: { contains: search, mode: "insensitive" } },
       { category: { contains: search, mode: "insensitive" } },
     ] } : {},
-    select: { id: true, title: true, author: true, mediaType: true, category: true, fileName: true, mimeType: true, fileSize: true, createdAt: true },
-    orderBy: { createdAt: "desc" }, take: 500,
-  }));
+    select: { id: true, title: true, author: true, mediaType: true, category: true, fileName: true, mimeType: true, filePath: true, fileSize: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(records.map((record) => ({
+    ...record,
+    filePath: isSecureFileUrl(record.filePath) ? record.filePath : null,
+    url: isSecureFileUrl(record.filePath) ? record.filePath : `/api/media/${record.id}/file`,
+  })));
 }));
 
-app.post("/api/media/upload", upload.single("file"), asyncRoute(async (req, res) => {
+app.post("/api/media/upload", cloudinaryUpload.single("file"), asyncRoute(async (req, res) => {
   if (!req.file) { res.status(400).json({ error: "A media file is required." }); return; }
   const extension = path.extname(req.file.originalname).toLowerCase();
   if (extension === ".pdf") {
     try {
-      const pdf = await PDFDocument.load(await readFile(req.file.path));
+      const pdf = await PDFDocument.load(req.file.buffer);
       if (pdf.getPageCount() > 2000) throw new ApiError(400, "PDFs are limited to 2,000 pages.");
     } catch (error) {
-      await unlink(req.file.path);
       if (error instanceof ApiError) throw error;
       throw new ApiError(400, "The uploaded file is not a valid PDF.");
     }
   } else if (!req.file.mimetype.startsWith("audio/")) {
-    await unlink(req.file.path);
     throw new ApiError(400, "The uploaded file is not a supported audio file.");
   }
   const allowedCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
   const category = typeof req.body.category === "string" ? req.body.category.trim() : "";
   if (category && !allowedCategories.includes(category)) {
-    await unlink(req.file.path);
     throw new ApiError(400, "Choose a valid media category.");
+  }
+  if (!cloudinaryConfigured) {
+    throw new ApiError(503, "Cloudinary uploads are not configured. Set the Cloudinary environment variables.");
+  }
+  const uploaded = await uploadToCloudinary(req.file);
+  if (!isSecureFileUrl(uploaded.secure_url)) {
+    throw new Error("Cloudinary did not return a valid secure file URL.");
   }
   const media = await prisma.mediaAsset.create({ data: {
     title: optionalText(req.body.title) || req.file.originalname,
     mediaType: extension === ".pdf" ? "PDF" : "AUDIO",
     category: category || "Other",
     fileName: path.basename(req.file.originalname), mimeType: req.file.mimetype,
-    filePath: req.file.filename, fileSize: req.file.size,
+    filePath: uploaded.secure_url, fileSize: req.file.size,
   } });
   await audit(req, "UPLOAD", "MEDIA", media.id);
-  res.status(201).json({ ...media, url: `/api/media/${media.id}/file` });
+  res.status(201).json({ ...media, url: uploaded.secure_url });
 }));
 
 app.delete("/api/media/:id", requireStaff, asyncRoute(async (req, res) => {
   const media = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
   if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
   await prisma.mediaAsset.delete({ where: { id: media.id } });
-  try {
-    await unlink(path.resolve(uploadDirectory, path.basename(media.filePath)));
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  if (!isSecureFileUrl(media.filePath)) {
+    try {
+      await unlink(path.resolve(uploadDirectory, path.basename(media.filePath)));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
   }
   await audit(req, "DELETE", "MEDIA", media.id);
   res.status(204).end();
@@ -1331,6 +1329,7 @@ app.delete("/api/media/:id", requireStaff, asyncRoute(async (req, res) => {
 app.get("/api/media/:id/file", asyncRoute(async (req, res) => {
   const media = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
   if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
+  if (isSecureFileUrl(media.filePath)) { res.redirect(media.filePath); return; }
   res.type(media.mimeType).sendFile(path.resolve(uploadDirectory, path.basename(media.filePath)));
 }));
 

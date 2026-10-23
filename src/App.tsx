@@ -877,16 +877,22 @@ function App() {
   async function previewMedia(record: Row) {
     setError("");
     try {
-      const blob = await download(`/media/${record.id}/file`);
-      const url = URL.createObjectURL(blob);
-      setMediaPreview({ title: toText(record.title), type: toText(record.mediaType), url });
+      const storedUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
+      const filePath = toText(record.filePath || record.url);
+      const url = storedUrl || URL.createObjectURL(await download(`/media/${record.id}/file`));
+      const mimeType = toText(record.mimeType).toLowerCase();
+      const type = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath)
+        ? "PDF"
+        : mimeType.startsWith("image/") ? "IMAGE"
+          : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+      setMediaPreview({ title: toText(record.title), type, url });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to open media.");
     }
   }
 
   function closeMediaPreview() {
-    if (mediaPreview) URL.revokeObjectURL(mediaPreview.url);
+    if (mediaPreview?.url.startsWith("blob:")) URL.revokeObjectURL(mediaPreview.url);
     setMediaPreview(null);
   }
 
@@ -1174,7 +1180,10 @@ function App() {
     {mediaPreview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeMediaPreview(); }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
         <div className="modal-head"><div className="modal-title">{mediaPreview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={closeMediaPreview}><X size={17} /></button></div>
-        {mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} /> : <audio controls src={mediaPreview.url} style={{ width: "100%", margin: "34px 0" }}>Audio playback is not supported by this browser.</audio>}
+        {mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
+          : mediaPreview.type === "IMAGE" ? <img alt={mediaPreview.title} src={mediaPreview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
+            : mediaPreview.type === "AUDIO" ? <audio controls src={mediaPreview.url} style={{ width: "100%", margin: "34px 0" }}>Audio playback is not supported by this browser.</audio>
+              : <a className="button" href={mediaPreview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
       </div>
     </div>}
     {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
@@ -1287,7 +1296,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   user: Account; libraryName: string; darkMode: boolean; onToggleTheme: () => void; onSignOut: () => void;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<"dashboard" | "catalog" | "loans" | "reservations">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations">("dashboard");
   const [books, setBooks] = useState<Row[]>([]);
   const [examSheets, setExamSheets] = useState<Row[]>([]);
   const [loans, setLoans] = useState<Row[]>([]);
@@ -1305,20 +1314,25 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading((state) => ({ ...state, catalog: true }));
+      setLoading((state) => ({ ...state, media: true }));
       const params = new URLSearchParams();
       if (query.trim()) params.set("search", query.trim());
       const search = params.toString();
       void Promise.all([
         api.get<Row[]>(`/books?${search}`),
         api.get<Row[]>(`/exam-sheets?${search}`),
-      ]).then(([bookResults, examSheetResults]) => {
+        api.get<Row[]>(`/media?${search}`),
+      ]).then(([bookResults, examSheetResults, mediaResults]) => {
         if (!cancelled) {
           setBooks(bookResults);
           setExamSheets(examSheetResults);
+          setMedia(mediaResults);
         }
       }).catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline"));
-      }).finally(() => { if (!cancelled) setLoading((state) => ({ ...state, catalog: false })); });
+      }).finally(() => {
+        if (!cancelled) setLoading((state) => ({ ...state, catalog: false, media: false }));
+      });
     }, 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [query, t]);
@@ -1333,9 +1347,6 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
         api.get<PortalReservation[]>("/portal/reservations").then((result) => { if (!cancelled) setReservations(result); })
           .catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline")); })
           .finally(() => { if (!cancelled) setLoading((state) => ({ ...state, reservations: false })); }),
-        api.get<Row[]>("/media").then((result) => { if (!cancelled) setMedia(result); })
-          .catch((cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline")); })
-          .finally(() => { if (!cancelled) setLoading((state) => ({ ...state, media: false })); }),
       ];
       await Promise.all(loaders);
     };
@@ -1343,7 +1354,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     return () => { cancelled = true; };
   }, [t]);
 
-  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
+  useEffect(() => () => { if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url); }, [preview]);
 
   const changeLanguage = () => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); };
   const activeLoans = loans.filter((loan) => loan.status !== "RETURNED");
@@ -1357,6 +1368,15 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const filteredCatalogItems = catalogTypeFilter === "ALL"
     ? catalogItems
     : catalogItems.filter((item) => item.catalogType === catalogTypeFilter);
+  const digitalMediaItems: Row[] = [
+    ...books.filter((book) => secureFileUrl(book.filePath)).map((book): Row => ({
+      ...book, mediaType: "PDF", category: toText(book.category) || t("book"), key: `book:${book.id}`,
+    })),
+    ...examSheets.filter((sheet) => secureFileUrl(sheet.filePath)).map((sheet): Row => ({
+      ...sheet, mediaType: "PDF", author: sheet.subject, category: t("examSheet"), key: `exam-sheet:${sheet.id}`,
+    })),
+    ...media.map((item): Row => ({ ...item, key: `media:${item.id}` })),
+  ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -1390,9 +1410,16 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   async function openMedia(item: Row) {
     setError("");
     try {
-      if (preview) URL.revokeObjectURL(preview.url);
-      const blob = await download(`/media/${item.id}/file`);
-      setPreview({ title: toText(item.title), type: toText(item.mediaType), url: URL.createObjectURL(blob) });
+      if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
+      const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
+      const filePath = toText(item.filePath || item.url);
+      const url = storedUrl || URL.createObjectURL(await download(`/media/${item.id}/file`));
+      const mimeType = toText(item.mimeType).toLowerCase();
+      const type = toText(item.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath)
+        ? "PDF"
+        : mimeType.startsWith("image/") ? "IMAGE"
+          : toText(item.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+      setPreview({ title: toText(item.title), type, url });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("mediaUnavailable"));
     }
@@ -1415,6 +1442,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
       <div className="portal-tabs">
         <button className={`nav-item ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}><LayoutDashboard size={15} />{t("dashboard")}</button>
         <button className={`nav-item ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}><BookOpen size={15} />{t("catalogPortal")}</button>
+        <button className={`nav-item ${tab === "digitalMedia" ? "active" : ""}`} onClick={() => setTab("digitalMedia")}><FileText size={15} />{t("digitalMedia")}</button>
         <button className={`nav-item ${tab === "loans" ? "active" : ""}`} onClick={() => setTab("loans")}><ArrowUpFromLine size={15} />{t("myLoans")}</button>
         <button className={`nav-item ${tab === "reservations" ? "active" : ""}`} onClick={() => setTab("reservations")}><BookMarked size={15} />{t("myReservations")}{activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}</button>
       </div>
@@ -1457,6 +1485,13 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           })}</div> : <div className="panel empty-state">{t("noCatalogItems")}</div>}
           <PortalMediaSection media={media} loading={loading.media} onOpen={openMedia} t={t} />
         </>}
+        {tab === "digitalMedia" && <>
+          <section className="panel portal-search-panel">
+            <label className="table-search"><Search size={14} /><input aria-label={t("searchDigitalMedia")} placeholder={t("searchDigitalMedia")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+            <span>{loading.catalog || loading.media ? "…" : digitalMediaItems.length} {t("digitalMedia").toLowerCase()}</span>
+          </section>
+          <PortalMediaSection media={digitalMediaItems} loading={loading.catalog || loading.media} onOpen={openMedia} t={t} />
+        </>}
         {tab === "loans" && <div className="portal-loans-stack">
           <PortalLoanTable loans={activeLoans} loading={loading.loans} emptyLabel={t("noActiveLoans")} t={t} />
           <PortalLoanTable loans={loanHistory} loading={loading.loans} emptyLabel={t("noLoanHistory")} history t={t} />
@@ -1476,7 +1511,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     {preview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
         <div className="modal-head"><div className="modal-title">{preview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setPreview(null)}><X size={17} /></button></div>
-        {preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} /> : <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>Audio playback is not supported by this browser.</audio>}
+        {preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
+          : preview.type === "IMAGE" ? <img alt={preview.title} src={preview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
+            : preview.type === "AUDIO" ? <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>Audio playback is not supported by this browser.</audio>
+              : <a className="button" href={preview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
       </div>
     </div>}
   </div>;
@@ -1498,8 +1536,8 @@ function PortalMediaSection({ media, loading, onOpen, t }: {
 }) {
   return <section className="panel portal-media-panel">
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
-    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className="portal-media-grid">{media.map((item) => <article className="portal-media-item" key={item.id}>
-      <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : <FileAudio size={17} />}</div>
+    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className="portal-media-grid">{media.map((item) => <article className="portal-media-item" key={toText(item.key) || item.id}>
+      <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : toText(item.mediaType) === "AUDIO" ? <FileAudio size={17} /> : <BookOpen size={17} />}</div>
       <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
       <button className="button" onClick={() => void onOpen(item)}>{t("previewMedia")}</button>
     </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}

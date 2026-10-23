@@ -1289,6 +1289,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const { t } = useTranslation();
   const [tab, setTab] = useState<"dashboard" | "catalog" | "loans" | "reservations">("dashboard");
   const [books, setBooks] = useState<Row[]>([]);
+  const [examSheets, setExamSheets] = useState<Row[]>([]);
   const [loans, setLoans] = useState<Row[]>([]);
   const [reservations, setReservations] = useState<PortalReservation[]>([]);
   const [media, setMedia] = useState<Row[]>([]);
@@ -1305,8 +1306,15 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
       setLoading((state) => ({ ...state, catalog: true }));
       const params = new URLSearchParams();
       if (query.trim()) params.set("search", query.trim());
-      void api.get<Row[]>(`/books?${params.toString()}`).then((result) => {
-        if (!cancelled) setBooks(result);
+      const search = params.toString();
+      void Promise.all([
+        api.get<Row[]>(`/books?${search}`),
+        api.get<Row[]>(`/exam-sheets?${search}`),
+      ]).then(([bookResults, examSheetResults]) => {
+        if (!cancelled) {
+          setBooks(bookResults);
+          setExamSheets(examSheetResults);
+        }
       }).catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline"));
       }).finally(() => { if (!cancelled) setLoading((state) => ({ ...state, catalog: false })); });
@@ -1341,6 +1349,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const loanHistory = loans.filter((loan) => loan.status === "RETURNED");
   const activeReservations = reservations.filter((item) => item.status === "REQUESTED" || item.status === "RESERVED");
   const currentFine = activeLoans.reduce((sum, loan) => sum + toFiniteNumber(loan.fineRemaining), 0);
+  const catalogItems: Array<Row & { catalogType: "BOOK" | "EXAM_SHEET" }> = [
+    ...books.map((book): Row & { catalogType: "BOOK" } => ({ ...book, catalogType: "BOOK" })),
+    ...examSheets.map((examSheet): Row & { catalogType: "EXAM_SHEET" } => ({ ...examSheet, catalogType: "EXAM_SHEET" })),
+  ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
 
   async function requestReservation(bookId: string) {
     setBusyReservation(bookId);
@@ -1414,23 +1426,27 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <PortalMediaSection media={media.slice(0, 4)} loading={loading.media} onOpen={openMedia} t={t} />
         </>}
         {tab === "catalog" && <>
-          <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchBooks")} placeholder={t("searchBooks")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><span>{books.length} {t("books").toLowerCase()}</span></section>
-          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : books.length ? <div className="portal-book-grid">{books.map((book) => {
-            const activeRequest = activeReservations.find((reservation) => reservation.bookId === book.id);
-            return <article className="panel portal-book" key={book.id}>
-              <div className="portal-book-cover"><BookOpen size={23} /></div>
-              <div className="portal-book-id">{t("id")}: {toText(book.id)}</div>
-              <div className="portal-book-category">{toText(book.category) || t("books")}</div>
-              <h2>{toText(book.title)}</h2><div className="portal-book-author">{toText(book.author)}</div>
-              {toText(book.description) && <p className="portal-book-description">{toText(book.description)}</p>}
-              {toText(book.shelfLocation) && <div className="portal-shelf">{t("shelfLocation")}: {toText(book.shelfLocation)}</div>}
-              <div className="portal-availability"><span className={`availability-dot ${Number(book.availableCopies) > 0 ? "in-stock" : ""}`} />{Number(book.availableCopies) > 0 ? `${toText(book.availableCopies)} ${t("availableCopiesLabel")}` : t("unavailable")}</div>
-              {secureFileUrl(book.filePath) && <a className="button" href={secureFileUrl(book.filePath)} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
-              <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === book.id} onClick={() => void requestReservation(book.id)}>
-                {busyReservation === book.id ? t("loading") : activeRequest ? t("requestPending") : t("requestReservation")}
-              </button>
+          <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><span>{catalogItems.length} {t("catalogItems").toLowerCase()}</span></section>
+          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : catalogItems.length ? <div className="portal-book-grid">{catalogItems.map((item) => {
+            const isBook = item.catalogType === "BOOK";
+            const activeRequest = isBook ? activeReservations.find((reservation) => reservation.bookId === item.id) : undefined;
+            const fileUrl = secureFileUrl(item.filePath);
+            return <article className="panel portal-book" key={`${item.catalogType}:${item.id}`}>
+              <div className="portal-book-cover">{isBook ? <BookOpen size={23} /> : <FileText size={23} />}</div>
+              <div className="portal-book-id">{t("id")}: {toText(item.id)}</div>
+              <div className="portal-book-category">{isBook ? toText(item.category) || t("books") : t("examSheet")}</div>
+              <h2>{toText(item.title)}</h2>
+              <div className="portal-book-author">{isBook ? toText(item.author) : toText(item.subject) ? `${t("subject")}: ${toText(item.subject)}` : ""}</div>
+              {!isBook && (toText(item.grade) || toText(item.examYear)) && <div className="portal-shelf">{[toText(item.grade) && `${t("grade")}: ${toText(item.grade)}`, toText(item.examYear) && `${t("examYear")}: ${toText(item.examYear)}`].filter(Boolean).join(" · ")}</div>}
+              {toText(item.description) && <p className="portal-book-description">{toText(item.description)}</p>}
+              {isBook && toText(item.shelfLocation) && <div className="portal-shelf">{t("shelfLocation")}: {toText(item.shelfLocation)}</div>}
+              <div className="portal-availability"><span className={`availability-dot ${Number(item.availableCopies) > 0 ? "in-stock" : ""}`} />{Number(item.availableCopies) > 0 ? `${toText(item.availableCopies)} ${t("availableCopiesLabel")}` : t("unavailable")}</div>
+              {fileUrl && <a className="button" href={fileUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
+              {isBook && <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === item.id} onClick={() => void requestReservation(item.id)}>
+                {busyReservation === item.id ? t("loading") : activeRequest ? t("requestPending") : t("requestReservation")}
+              </button>}
             </article>;
-          })}</div> : <div className="panel empty-state">{t("noBooks")}</div>}
+          })}</div> : <div className="panel empty-state">{t("noCatalogItems")}</div>}
           <PortalMediaSection media={media} loading={loading.media} onOpen={openMedia} t={t} />
         </>}
         {tab === "loans" && <div className="portal-loans-stack">

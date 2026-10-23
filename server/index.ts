@@ -138,7 +138,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 app.use("/api", authenticate, (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.user?.role !== "MEMBER") { next(); return; }
   const memberRead = req.method === "GET" && (
-    ["/books", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
+    ["/books", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
     /^\/media\/[^/]+\/file$/.test(req.path)
   );
   const memberReservation = req.method === "POST" &&
@@ -413,11 +413,23 @@ app.delete("/api/books/:id", requireStaff, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.get("/api/exam-sheets", requireStaff, asyncRoute(async (req, res) => {
+app.get("/api/exam-sheets", asyncRoute(async (req, res) => {
+  if (req.user?.role !== "MEMBER" && req.user?.role !== "LIBRARIAN" && req.user?.role !== "ADMIN") {
+    res.status(403).json({ error: "Library staff access is required." });
+    return;
+  }
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const where: Prisma.ExamSheetWhereInput = search ? { OR: [
     { title: { contains: search } }, { subject: { contains: search } }, { grade: { contains: search } },
   ] } : {};
+  if (req.user.role === "MEMBER") {
+    const examSheets = await prisma.examSheet.findMany({
+      where, orderBy: { title: "asc" }, take: 500,
+      select: { id: true, title: true, subject: true, grade: true, examYear: true, description: true, filePath: true, availableCopies: true },
+    });
+    res.json(examSheets);
+    return;
+  }
   res.json(await prisma.examSheet.findMany({ where, orderBy: { title: "asc" }, take: 500 }));
 }));
 

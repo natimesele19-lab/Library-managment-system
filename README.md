@@ -55,6 +55,7 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | POST, PUT | `/api/admin/change-password` | Verify the current password and set a new administrator password |
 | GET | `/api/dashboard` | Dashboard aggregates and circulation charts |
 | GET, POST | `/api/books` | Search and create books |
+| GET, POST | `/api/exam-sheets` | Search exam sheets (staff and signed-in members) and create records |
 | PUT, DELETE | `/api/books/:id` | Update and remove books |
 | GET, POST | `/api/patrons` | Search and create students or teachers; create accepts optional `memberCode` and portal `password` |
 | PUT, DELETE | `/api/patrons/:id` | Update and remove patrons; update accepts an optional portal `password` to set/reset credentials |

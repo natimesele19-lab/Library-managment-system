@@ -1,4 +1,4 @@
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { ApiRecord } from "./api";
 
 type ExamSheetRow = ApiRecord & { [key: string]: unknown };
@@ -16,6 +16,15 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
   onDelete: (record: ExamSheetRow) => void;
 }) {
   const text = (value: unknown) => value == null || value === "" ? "—" : String(value);
+  const secureFileUrl = (value: unknown) => {
+    if (typeof value !== "string") return "";
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" ? url.href : "";
+    } catch {
+      return "";
+    }
+  };
 
   return <>
     <div className="page-heading">
@@ -43,6 +52,7 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
             <td>{text(record.examYear)}</td>
             <td>{text(record.availableCopies)} / {text(record.copies)}</td>
             <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              {secureFileUrl(record.filePath) && <a className="row-action" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer" title={t("openFile")} aria-label={t("openFile")}><ExternalLink size={14} /></a>}
               <button className="row-action" title={t("edit")} aria-label={`${t("edit")}: ${text(record.title)}`} disabled={busy} onClick={() => onEdit(record)}><Pencil size={14} /></button>
               <button className="row-action" title={t("delete")} aria-label={`${t("delete")}: ${text(record.title)}`} disabled={busy} onClick={() => onDelete(record)}><Trash2 size={14} /></button>
             </div></td>

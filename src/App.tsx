@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
-  Clock3, Download, FileAudio, FileText, GraduationCap, Languages, Moon,
+  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
   QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
@@ -58,7 +58,6 @@ function savedAccount(): Account | null {
     localStorage.removeItem("library-user");
     return null;
   }
-
 }
 
 const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; section: "main" | "manage" }[] = [
@@ -95,6 +94,7 @@ const pageConfig: Record<CrudPage, {
       { key: "description", label: "description", type: "text" },
       { key: "publisher", label: "publisher", type: "text" },
       { key: "publishedYear", label: "publishedYear", type: "number" },
+      { key: "filePath", label: "fileUrl", type: "url" },
     ],
   },
   examSheets: {
@@ -106,6 +106,7 @@ const pageConfig: Record<CrudPage, {
       { key: "examYear", label: "examYear", type: "number" },
       { key: "copies", label: "quantity", type: "number", required: true },
       { key: "description", label: "description", type: "text" },
+      { key: "filePath", label: "fileUrl", type: "url" },
     ],
   },
   students: {
@@ -157,6 +158,15 @@ const colors = ["#518970", "#92b49c", "#d2a66a", "#afc6b6", "#7896a1"];
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"];
 const amharicMonths = ["ጃን", "ፌብ", "ማር", "ኤፕ", "ሜይ", "ጁን", "ጁላይ", "ኦገስት", "ሴፕ", "ኦክቶ", "ኖቬ"];
 const toText = (value: unknown) => (value == null ? "" : String(value));
+const secureFileUrl = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+};
 const toFiniteNumber = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -571,6 +581,32 @@ function App() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save record.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadRecordFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || (page !== "books" && page !== "examSheets")) return;
+    const data = new FormData();
+    data.append("file", file);
+    if (editing) {
+      data.append("recordType", page === "books" ? "BOOK" : "EXAM_SHEET");
+      data.append("recordId", editing.id);
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request<{ secure_url: string }>("/upload", { method: "POST", body: data });
+      if (!secureFileUrl(result.secure_url)) throw new Error("The server did not return a valid secure file URL.");
+      setForm((current) => ({ ...current, filePath: result.secure_url }));
+      if (editing) {
+        setRecords((current) => current.map((record) => record.id === editing.id ? { ...record, filePath: result.secure_url } : record));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to upload the file.");
     } finally {
       setBusy(false);
     }
@@ -1179,7 +1215,8 @@ function App() {
           <div className="form-grid">
             {[...pageConfig[page].fields, ...customFields.map((field) => ({ ...field, label: field.label }))].map((field) => (
               field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : field.key === "gender" ? [["", t("selectGender")], ["Male", t("male")], ["Female", t("female")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
-                : <FieldInput key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} name={field.key} value={form[field.key] || ""} type={field.type === "number" || field.type === "email" || field.type === "date" || field.type === "tel" ? field.type : "text"} step={field.key === "value" ? "0.01" : undefined} required={field.required} placeholder={field.placeholder ? t(field.placeholder) : undefined} onChange={(value) => setForm({ ...form, [field.key]: value })} />))}
+                : <FieldInput key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} name={field.key} value={form[field.key] || ""} type={field.type === "number" || field.type === "email" || field.type === "date" || field.type === "tel" || field.type === "url" ? field.type : "text"} step={field.key === "value" ? "0.01" : undefined} required={field.required} placeholder={field.placeholder ? t(field.placeholder) : undefined} onChange={(value) => setForm({ ...form, [field.key]: value })} />))}
+            {(page === "books" || page === "examSheets") && <label className="button"><ExternalLink size={13} />{t("uploadFile")}<input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" hidden disabled={busy} onChange={(event) => void uploadRecordFile(event)} /></label>}
             {(page === "students" || page === "staff") && <>
               <FieldInput label={t("portalPassword")} name="patron-portal-password" value={form.password || ""} onChange={(value) => setForm({ ...form, password: value })} type="password" placeholder={t("portalPasswordPlaceholder")} minLength={12} autoComplete="new-password" />
               <p className="form-help">{t("patronPasswordHelp")}</p>
@@ -1388,6 +1425,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
               {toText(book.description) && <p className="portal-book-description">{toText(book.description)}</p>}
               {toText(book.shelfLocation) && <div className="portal-shelf">{t("shelfLocation")}: {toText(book.shelfLocation)}</div>}
               <div className="portal-availability"><span className={`availability-dot ${Number(book.availableCopies) > 0 ? "in-stock" : ""}`} />{Number(book.availableCopies) > 0 ? `${toText(book.availableCopies)} ${t("availableCopiesLabel")}` : t("unavailable")}</div>
+              {secureFileUrl(book.filePath) && <a className="button" href={secureFileUrl(book.filePath)} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
               <button className="button button-primary portal-request-button" disabled={Boolean(activeRequest) || busyReservation === book.id} onClick={() => void requestReservation(book.id)}>
                 {busyReservation === book.id ? t("loading") : activeRequest ? t("requestPending") : t("requestReservation")}
               </button>
@@ -1755,8 +1793,8 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div></div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
-          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button><button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button></>}</div></td>
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <a href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <a className="row-action" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer" title={t("openFile")} aria-label={t("openFile")}><ExternalLink size={14} /></a>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : libraryName}</span></div>

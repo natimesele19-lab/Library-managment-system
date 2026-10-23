@@ -343,7 +343,7 @@ app.get("/api/books", asyncRoute(async (req, res) => {
   if (req.user?.role === "MEMBER") {
     const books = await prisma.book.findMany({
       where, orderBy: { title: "asc" }, take: 500,
-      select: { id: true, title: true, author: true, category: true, isbn: true, description: true, publisher: true, publishedYear: true, shelfLocation: true, availableCopies: true },
+      select: { id: true, title: true, author: true, category: true, isbn: true, description: true, publisher: true, publishedYear: true, shelfLocation: true, filePath: true, availableCopies: true },
     });
     res.json(books);
     return;
@@ -357,11 +357,15 @@ app.post("/api/books", requireStaff, asyncRoute(async (req, res) => {
   const copies = body.copies === undefined ? 1 : positiveInteger(body.copies, NaN);
   if (!Number.isInteger(copies)) { res.status(400).json({ error: "Copies must be a positive whole number." }); return; }
   const publishedYear = optionalYear(body.publishedYear);
+  if (body.filePath !== undefined && body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
+    res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
+    return;
+  }
   const customFields = await validateCustomFields(FormEntity.BOOK, body.customFields, true);
   const book = await prisma.book.create({ data: {
     title: String(body.title).trim(), author: String(body.author).trim(), isbn: optionalText(body.isbn),
     category: optionalText(body.category), description: optionalText(body.description), publisher: optionalText(body.publisher), publishedYear,
-    shelfLocation: optionalText(body.shelfLocation), copies, availableCopies: copies,
+    shelfLocation: optionalText(body.shelfLocation), filePath: optionalText(body.filePath) || null, copies, availableCopies: copies,
     customFields,
   } });
   await audit(req, "CREATE", "BOOK", book.id);
@@ -375,6 +379,13 @@ app.put("/api/books/:id", requireStaff, asyncRoute(async (req, res) => {
   const data: Prisma.BookUpdateInput = {};
   for (const key of ["title", "author", "isbn", "category", "description", "publisher", "shelfLocation"] as const) {
     if (key in body) Object.assign(data, { [key]: optionalText(body[key]) });
+  }
+  if ("filePath" in body) {
+    if (body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
+      res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
+      return;
+    }
+    data.filePath = optionalText(body.filePath) || null;
   }
   if ("publishedYear" in body) data.publishedYear = optionalYear(body.publishedYear);
   if ("copies" in body) {
@@ -415,9 +426,13 @@ app.post("/api/exam-sheets", requireStaff, asyncRoute(async (req, res) => {
   if (!requiredText(body.title)) { res.status(400).json({ error: "Exam sheet title is required." }); return; }
   const copies = body.copies === undefined ? 1 : positiveInteger(body.copies, NaN);
   if (!Number.isInteger(copies)) { res.status(400).json({ error: "Copies must be a positive whole number." }); return; }
+  if (body.filePath !== undefined && body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
+    res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
+    return;
+  }
   const examSheet = await prisma.examSheet.create({ data: {
     title: body.title.trim(), subject: optionalText(body.subject), grade: optionalText(body.grade),
-    examYear: optionalYear(body.examYear), description: optionalText(body.description), copies, availableCopies: copies,
+    examYear: optionalYear(body.examYear), description: optionalText(body.description), filePath: optionalText(body.filePath) || null, copies, availableCopies: copies,
   } });
   await audit(req, "CREATE", "EXAM_SHEET", examSheet.id);
   res.status(201).json(examSheet);
@@ -432,6 +447,13 @@ app.put("/api/exam-sheets/:id", requireStaff, asyncRoute(async (req, res) => {
     if (key in body) {
       if (key === "title" && !requiredText(body[key])) { res.status(400).json({ error: "Exam sheet title is required." }); return; }
       Object.assign(data, { [key]: optionalText(body[key]) });
+    }
+    if ("filePath" in body) {
+      if (body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
+        res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
+        return;
+      }
+      data.filePath = optionalText(body.filePath) || null;
     }
   }
   if ("examYear" in body) data.examYear = optionalYear(body.examYear);
@@ -1151,12 +1173,36 @@ function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiRespons
 
 app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRoute(async (req, res) => {
   if (!req.file) { res.status(400).json({ error: "A file is required." }); return; }
+  const recordType = req.body.recordType;
+  const recordId = optionalText(req.body.recordId);
+  if ((recordType === undefined) !== (recordId === undefined) ||
+      (recordType !== undefined && recordType !== "BOOK" && recordType !== "EXAM_SHEET")) {
+    res.status(400).json({ error: "Provide a valid recordType and recordId together to attach the file." });
+    return;
+  }
+  if (recordId && recordType === "BOOK" && !await prisma.book.findUnique({ where: { id: recordId }, select: { id: true } })) {
+    res.status(404).json({ error: "Book not found." });
+    return;
+  }
+  if (recordId && recordType === "EXAM_SHEET" && !await prisma.examSheet.findUnique({ where: { id: recordId }, select: { id: true } })) {
+    res.status(404).json({ error: "Exam sheet not found." });
+    return;
+  }
   if (!cloudinaryConfigured) {
     throw new ApiError(503, "Cloudinary uploads are not configured. Set the Cloudinary environment variables.");
   }
   const uploaded = await uploadToCloudinary(req.file);
+  if (!isSecureFileUrl(uploaded.secure_url)) {
+    throw new Error("Cloudinary did not return a valid secure file URL.");
+  }
+  if (recordId && recordType === "BOOK") {
+    await prisma.book.update({ where: { id: recordId }, data: { filePath: uploaded.secure_url } });
+  } else if (recordId && recordType === "EXAM_SHEET") {
+    await prisma.examSheet.update({ where: { id: recordId }, data: { filePath: uploaded.secure_url } });
+  }
   res.status(201).json({
     secure_url: uploaded.secure_url,
+    filePath: uploaded.secure_url,
     public_id: uploaded.public_id,
     resource_type: uploaded.resource_type,
   });
@@ -1282,6 +1328,14 @@ function requiredText(value: unknown): value is string {
 }
 function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+function isSecureFileUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 function patronGender(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;

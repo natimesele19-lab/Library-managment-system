@@ -1,0 +1,2 @@
+ALTER TABLE "Book" ADD COLUMN "filePath" TEXT;
+ALTER TABLE "ExamSheet" ADD COLUMN "filePath" TEXT;

@@ -66,6 +66,7 @@ model Book {
   publisher       String?
   publishedYear   Int?
   shelfLocation   String?
+  filePath        String?
   copies          Int        @default(1)
   availableCopies Int        @default(1)
   customFields    String     @default("{}")
@@ -88,6 +89,7 @@ model ExamSheet {
   copies          Int        @default(1)
   availableCopies Int        @default(1)
   description     String?
+  filePath        String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   loanItems       LoanItem[]

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
-  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, Moon,
+  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
   QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
@@ -24,9 +24,10 @@ type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacher
 const isCrudPage = (page: Page): page is CrudPage =>
   page === "books" || page === "examSheets" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
+type ViewMode = "grid" | "list";
 type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
 type Stats = {
-  totalBooks: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
+  totalBooks: number; totalExamSheets: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
   borrowersThisMonth: number; finesCollected: number;
   borrowingTrends: { month: string; borrowed: number; returned: number }[];
   categories: { name: string; value: number }[];
@@ -35,6 +36,7 @@ type Stats = {
 };
 const EMPTY_STATS: Stats = {
   totalBooks: 0,
+  totalExamSheets: 0,
   borrowedBooks: 0,
   activeStudents: 0,
   overdueBooks: 0,
@@ -167,6 +169,27 @@ const secureFileUrl = (value: unknown) => {
     return "";
   }
 };
+async function openPdfInNewTab(record: Row): Promise<boolean> {
+  const filePath = toText(record.filePath || record.url);
+  const mimeType = toText(record.mimeType).toLowerCase();
+  const isPdf = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
+  if (!isPdf) return false;
+
+  const secureUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
+  const tab = window.open(secureUrl || "about:blank", "_blank");
+  if (!tab) throw new Error("Allow pop-ups to open PDF files.");
+  tab.opener = null;
+  if (!secureUrl) {
+    try {
+      const file = await download(`/media/${record.id}/file`);
+      tab.location.href = URL.createObjectURL(file);
+    } catch (cause) {
+      tab.close();
+      throw cause;
+    }
+  }
+  return true;
+}
 const toFiniteNumber = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -877,6 +900,7 @@ function App() {
   async function previewMedia(record: Row) {
     setError("");
     try {
+      if (await openPdfInNewTab(record)) return;
       const storedUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
       const filePath = toText(record.filePath || record.url);
       const url = storedUrl || URL.createObjectURL(await download(`/media/${record.id}/file`));
@@ -1304,6 +1328,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const [media, setMedia] = useState<Row[]>([]);
   const [query, setQuery] = useState("");
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<"ALL" | "BOOK" | "EXAM_SHEET">("ALL");
+  const [portalViewMode, setPortalViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -1368,7 +1393,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const filteredCatalogItems = catalogTypeFilter === "ALL"
     ? catalogItems
     : catalogItems.filter((item) => item.catalogType === catalogTypeFilter);
-  const digitalMediaItems: Row[] = [
+  const allDigitalMediaItems: Row[] = [
     ...books.filter((book) => secureFileUrl(book.filePath)).map((book): Row => ({
       ...book, mediaType: "PDF", category: toText(book.category) || t("book"), key: `book:${book.id}`,
     })),
@@ -1377,6 +1402,9 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     })),
     ...media.map((item): Row => ({ ...item, key: `media:${item.id}` })),
   ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
+  const digitalMediaItems = catalogTypeFilter === "ALL"
+    ? allDigitalMediaItems
+    : allDigitalMediaItems.filter((item) => toText(item.key).startsWith(catalogTypeFilter === "BOOK" ? "book:" : "exam-sheet:"));
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -1410,6 +1438,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   async function openMedia(item: Row) {
     setError("");
     try {
+      if (await openPdfInNewTab(item)) return;
       if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
       const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
       const filePath = toText(item.filePath || item.url);
@@ -1461,8 +1490,8 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label={t("filterCatalogType")} className="select-control" value={catalogTypeFilter} onChange={(event) => {
             const value = event.target.value;
             if (value === "ALL" || value === "BOOK" || value === "EXAM_SHEET") setCatalogTypeFilter(value);
-          }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select><span>{filteredCatalogItems.length} {t("catalogItems").toLowerCase()}</span></section>
-          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : filteredCatalogItems.length ? <div className="portal-book-grid">{filteredCatalogItems.map((item) => {
+          }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select><span>{filteredCatalogItems.length} {t("catalogItems").toLowerCase()}</span><ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} /></section>
+          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : filteredCatalogItems.length ? <div className={`portal-book-grid ${portalViewMode === "list" ? "is-list" : ""}`}>{filteredCatalogItems.map((item) => {
             const isBook = item.catalogType === "BOOK";
             const activeRequest = activeReservations.find((reservation) =>
               isBook ? reservation.bookId === item.id : reservation.examSheetId === item.id);
@@ -1488,9 +1517,14 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
         {tab === "digitalMedia" && <>
           <section className="panel portal-search-panel">
             <label className="table-search"><Search size={14} /><input aria-label={t("searchDigitalMedia")} placeholder={t("searchDigitalMedia")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+            <select aria-label={t("filterCatalogType")} className="select-control" value={catalogTypeFilter} onChange={(event) => {
+              const value = event.target.value;
+              if (value === "ALL" || value === "BOOK" || value === "EXAM_SHEET") setCatalogTypeFilter(value);
+            }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select>
             <span>{loading.catalog || loading.media ? "…" : digitalMediaItems.length} {t("digitalMedia").toLowerCase()}</span>
+            <ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} />
           </section>
-          <PortalMediaSection media={digitalMediaItems} loading={loading.catalog || loading.media} onOpen={openMedia} t={t} />
+          <PortalMediaSection media={digitalMediaItems} loading={loading.catalog || loading.media} onOpen={openMedia} t={t} viewMode={portalViewMode} />
         </>}
         {tab === "loans" && <div className="portal-loans-stack">
           <PortalLoanTable loans={activeLoans} loading={loading.loans} emptyLabel={t("noActiveLoans")} t={t} />
@@ -1531,15 +1565,24 @@ function PortalLoanTable({ loans, loading, emptyLabel, history = false, t }: {
   </section>;
 }
 
-function PortalMediaSection({ media, loading, onOpen, t }: {
-  media: Row[]; loading: boolean; onOpen: (record: Row) => void; t: (key: string) => string;
+function ViewModeToggle({ mode, onChange, t }: {
+  mode: ViewMode; onChange: (mode: ViewMode) => void; t: (key: string) => string;
+}) {
+  return <div className="view-mode-toggle" role="group" aria-label={t("viewMode")}>
+    <button type="button" className={`button ${mode === "grid" ? "active" : ""}`} aria-pressed={mode === "grid"} title={t("gridView")} onClick={() => onChange("grid")}><LayoutGrid size={14} /><span>{t("gridView")}</span></button>
+    <button type="button" className={`button ${mode === "list" ? "active" : ""}`} aria-pressed={mode === "list"} title={t("listView")} onClick={() => onChange("list")}><List size={14} /><span>{t("listView")}</span></button>
+  </div>;
+}
+
+function PortalMediaSection({ media, loading, onOpen, t, viewMode = "list" }: {
+  media: Row[]; loading: boolean; onOpen: (record: Row) => void; t: (key: string) => string; viewMode?: ViewMode;
 }) {
   return <section className="panel portal-media-panel">
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
-    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className="portal-media-grid">{media.map((item) => <article className="portal-media-item" key={toText(item.key) || item.id}>
+    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className={`portal-media-grid ${viewMode === "grid" ? "is-grid" : "is-list"}`}>{media.map((item) => <article className="portal-media-item" key={toText(item.key) || item.id}>
       <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : toText(item.mediaType) === "AUDIO" ? <FileAudio size={17} /> : <BookOpen size={17} />}</div>
       <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
-      <button className="button" onClick={() => void onOpen(item)}>{t("previewMedia")}</button>
+      <button className="button" onClick={() => void onOpen(item)}>{t(toText(item.mediaType).toUpperCase() === "PDF" ? "openFile" : "previewMedia")}</button>
     </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}
   </section>;
 }
@@ -1557,6 +1600,7 @@ function Dashboard({ stats, loading, libraryName, t, onNavigate }: { stats: Stat
   const bookCategories = stats?.bookCategories || [];
   const cards = [
     { label: t("totalBooks"), value: stats?.totalBooks ?? "—", icon: BookOpen, tint: "#e9f2ed", color: "#52876f" },
+    { label: t("totalExamSheets"), value: stats?.totalExamSheets ?? "—", icon: FileText, tint: "#edf0f8", color: "#7184ae" },
     { label: t("borrowed"), value: stats?.borrowedBooks ?? "—", icon: ArrowUpFromLine, tint: "#f8f0e7", color: "#b5824f" },
     { label: t("activeStudents"), value: stats?.activeStudents ?? "—", icon: Users, tint: "#edf0f8", color: "#7184ae" },
     { label: t("overdue"), value: stats?.overdueBooks ?? "—", icon: Clock3, tint: "#f9ebea", color: "#bb625b" },
@@ -1719,6 +1763,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const [patronLoans, setPatronLoans] = useState<Row[]>([]);
   const [patronLoansLoading, setPatronLoansLoading] = useState(false);
   const [idCardPatron, setIdCardPatron] = useState<IDCardPatron | null>(null);
+  const [listingViewMode, setListingViewMode] = useState<ViewMode>("list");
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
     page === "teacherBorrowing" ? { title: "teacherBorrowing", description: "", icon: BookOpen } :
     page === "returns" ? { title: "returnBooks", description: "fineCalculated", icon: RotateCcw } : pageConfig[page];
@@ -1728,6 +1773,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const isInventory = page === "inventory";
   const isPeople = page === "students" || page === "staff";
   const isBorrowerSelectionPage = isCirculation || isReturnPage;
+  const supportsViewToggle = page === "books" || page === "examSheets" || page === "students" || page === "staff" || page === "media";
 
   useEffect(() => {
     setSelectedPatron(null);
@@ -1819,6 +1865,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           </>}
         </div>
         <div className="toolbar-group">
+          {supportsViewToggle && <ViewModeToggle mode={listingViewMode} onChange={setListingViewMode} t={t} />}
           {isReturnPage && selectedIds.length > 0 && <button className="button button-primary" disabled={busy} onClick={onReturnSelected}><RotateCcw size={12} />{t("returnSelected")} ({selectedIds.length})</button>}
           {isPeople && selectedIds.length > 0 && <button className="button button-danger" onClick={onDeleteSelected}><Trash2 size={12} />{t("deleteSelected")} ({selectedIds.length})</button>}
           {!isCirculation && !isReturnPage && !isMedia && <label className="button"><Download size={12} />{t("import")}<input type="file" accept=".xlsx,.docx" hidden onChange={onImport} /></label>}
@@ -1845,7 +1892,37 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           </div>}
         </section>
       </>}
-      <div className="table-wrap"><table className="data-table"><thead><tr>
+      {supportsViewToggle && listingViewMode === "grid" && <div className="record-grid">
+        {loading ? <div className="panel loading-state">{t("loading")}</div> : records.length ? records.map((record) => {
+          const title = toText(record.title || record.name || record.asset || record.fileName);
+          const recordDetails = headers.filter(([key]) => key !== "title" && key !== "id").slice(0, 4);
+          return <article className="panel record-card" key={record.id}>
+            {isPeople && <label className="record-card-select"><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} />{t("selectAll")}</label>}
+            <div className="record-card-heading">
+              <div className="record-card-icon">{page === "books" ? <BookOpen size={18} /> : page === "examSheets" ? <FileText size={18} /> : isPeople ? <Users size={18} /> : <FileAudio size={18} />}</div>
+              <div><h2>{title || "—"}</h2><small>{toText(isPeople ? record.memberCode : record.id)}</small></div>
+            </div>
+            <div className="record-card-details">{recordDetails.map(([key, label]) => <div className="record-card-detail" key={key}>
+              <span>{t(label)}</span><strong>{key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : toText(record[key]) || "—"}</strong>
+            </div>)}</div>
+            {secureFileUrl(record.filePath) && <a className="button record-card-file" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{t("openFile")}</a>}
+            <div className="record-card-actions">
+              {isMedia ? <>
+                <button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button>
+                <button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button>
+              </> : <>
+                {isPeople && <>
+                  <button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button>
+                  <button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button>
+                </>}
+                <button className="row-action" title={t("edit")} aria-label={`${t("edit")}: ${title}`} onClick={() => onEdit(record)}><Settings size={14} /></button>
+                <button className="row-action" title={t("delete")} aria-label={`${t("delete")}: ${title}`} onClick={() => onDelete(record)}><Trash2 size={14} /></button>
+              </>}
+            </div>
+          </article>;
+        }) : <div className="panel empty-state">{t("noRecords")}</div>}
+      </div>}
+      <div className="table-wrap" hidden={supportsViewToggle && listingViewMode === "grid"}><table className="data-table"><thead><tr>
         {isPeople && <th><input type="checkbox" aria-label={t("selectAll")} checked={records.length > 0 && records.every((record) => selectedIds.includes(record.id))} onChange={(event) => {
           if (event.target.checked) records.forEach((record) => { if (!selectedIds.includes(record.id)) onToggleSelected(record.id); });
           else records.forEach((record) => { if (selectedIds.includes(record.id)) onToggleSelected(record.id); });
@@ -1878,6 +1955,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
 function Reports({ stats, loading, libraryName, t }: { stats: Stats | null; loading: boolean; libraryName: string; t: (key: string) => string }) {
   const values = [
     { title: "booksInCollection", value: stats?.totalBooks ?? "—", icon: BookOpen, note: t("totalBooks") },
+    { title: "totalExamSheets", value: stats?.totalExamSheets ?? "—", icon: FileText, note: t("totalExamSheets") },
     { title: "borrowersThisMonth", value: stats?.borrowersThisMonth ?? "—", icon: Users, note: t("borrowersThisMonth") },
     { title: "finesCollected", value: formatMoney(stats?.finesCollected, t("ethiopianBirr")), icon: CircleDollarSign, note: t("fineCollection") },
     { title: "overdueRate", value: stats?.totalBooks ? `${Math.round((stats.overdueBooks / stats.totalBooks) * 100)}%` : "—", icon: Activity, note: t("overdue") },

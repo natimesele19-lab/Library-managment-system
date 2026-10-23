@@ -269,8 +269,9 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
   const today = new Date(now);
   today.setUTCHours(0, 0, 0, 0);
   const startMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const [totalBooks, available, activeStudents, borrowersThisMonth, activeItems, overdueItems, recent, popularItems, returnedRecent, paidFine, bookCategoryGroups] = await Promise.all([
+  const [totalBooks, totalExamSheets, available, activeStudents, borrowersThisMonth, activeItems, overdueItems, recent, popularItems, returnedRecent, paidFine, bookCategoryGroups] = await Promise.all([
     prisma.book.aggregate({ _sum: { copies: true } }),
+    prisma.examSheet.count(),
     prisma.book.aggregate({ _sum: { availableCopies: true } }),
     prisma.patron.count({ where: { type: "STUDENT", active: true } }),
     prisma.loan.groupBy({ by: ["patronId"], where: { issuedAt: { gte: new Date(now.getFullYear(), now.getMonth(), 1) } } }),
@@ -318,6 +319,7 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   res.json({
     totalBooks: totalBooks._sum.copies || 0,
+    totalExamSheets,
     availableBooks: available._sum.availableCopies || 0,
     borrowedBooks: activeItems,
     activeStudents,
@@ -348,7 +350,7 @@ app.get("/api/books", asyncRoute(async (req, res) => {
     res.json(books);
     return;
   }
-  res.json(await prisma.book.findMany({ where, orderBy: { title: "asc" }, take: 500 }));
+  res.json(await prisma.book.findMany({ where, orderBy: { title: "asc" } }));
 }));
 
 app.post("/api/books", requireStaff, asyncRoute(async (req, res) => {
@@ -430,7 +432,7 @@ app.get("/api/exam-sheets", asyncRoute(async (req, res) => {
     res.json(examSheets);
     return;
   }
-  res.json(await prisma.examSheet.findMany({ where, orderBy: { title: "asc" }, take: 500 }));
+  res.json(await prisma.examSheet.findMany({ where, orderBy: { title: "asc" } }));
 }));
 
 app.post("/api/exam-sheets", requireStaff, asyncRoute(async (req, res) => {

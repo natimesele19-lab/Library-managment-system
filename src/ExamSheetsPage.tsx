@@ -1,4 +1,5 @@
-import { ExternalLink, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ExternalLink, FileText, LayoutGrid, List, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { ApiRecord } from "./api";
 
 type ExamSheetRow = ApiRecord & { [key: string]: unknown };
@@ -15,6 +16,7 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
   onEdit: (record: ExamSheetRow) => void;
   onDelete: (record: ExamSheetRow) => void;
 }) {
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const text = (value: unknown) => value == null || value === "" ? "—" : String(value);
   const secureFileUrl = (value: unknown) => {
     if (typeof value !== "string") return "";
@@ -41,8 +43,27 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
           <Search size={14} />
           <input aria-label={t("searchExamSheets")} placeholder={t("searchExamSheets")} value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
+        <div className="view-mode-toggle" role="group" aria-label={t("viewMode")}>
+          <button type="button" className={`button ${viewMode === "grid" ? "active" : ""}`} aria-pressed={viewMode === "grid"} title={t("gridView")} onClick={() => setViewMode("grid")}><LayoutGrid size={14} /><span>{t("gridView")}</span></button>
+          <button type="button" className={`button ${viewMode === "list" ? "active" : ""}`} aria-pressed={viewMode === "list"} title={t("listView")} onClick={() => setViewMode("list")}><List size={14} /><span>{t("listView")}</span></button>
+        </div>
       </div>
-      <div className="table-wrap"><table className="data-table">
+      {viewMode === "grid" && <div className="exam-sheet-grid">
+        {loading ? <div className="loading-state">{t("loading")}</div> : records.length ? records.map((record) => <article className="panel exam-sheet-card" key={record.id}>
+          <div className="record-card-heading"><div className="record-card-icon"><FileText size={18} /></div><div><h2>{text(record.title)}</h2><small>{text(record.subject)}</small></div></div>
+          <div className="record-card-details">
+            <div className="record-card-detail"><span>{t("grade")}</span><strong>{text(record.grade)}</strong></div>
+            <div className="record-card-detail"><span>{t("examYear")}</span><strong>{text(record.examYear)}</strong></div>
+            <div className="record-card-detail"><span>{t("available")}</span><strong>{text(record.availableCopies)} / {text(record.copies)}</strong></div>
+          </div>
+          <div className="record-card-actions">
+            {secureFileUrl(record.filePath) && <a className="row-action" href={secureFileUrl(record.filePath)} target="_blank" rel="noopener noreferrer" title={t("openFile")} aria-label={t("openFile")}><ExternalLink size={14} /></a>}
+            <button className="row-action" title={t("edit")} aria-label={`${t("edit")}: ${text(record.title)}`} disabled={busy} onClick={() => onEdit(record)}><Pencil size={14} /></button>
+            <button className="row-action" title={t("delete")} aria-label={`${t("delete")}: ${text(record.title)}`} disabled={busy} onClick={() => onDelete(record)}><Trash2 size={14} /></button>
+          </div>
+        </article>) : <div className="empty-state">{query ? t("noExamSheets") : t("noRecords")}</div>}
+      </div>}
+      <div className="table-wrap" hidden={viewMode === "grid"}><table className="data-table">
         <thead><tr><th>{t("title")}</th><th>{t("subject")}</th><th>{t("grade")}</th><th>{t("examYear")}</th><th>{t("available")}</th><th>{t("actions")}</th></tr></thead>
         <tbody>
           {loading ? <tr><td colSpan={6}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>

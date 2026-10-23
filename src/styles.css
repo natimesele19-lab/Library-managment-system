@@ -64,7 +64,7 @@ button { cursor: pointer; }
 .button-primary { background: #3c7865; color: white; border-color: #3c7865; }
 .button-primary:hover { background: #326b58; border-color: #326b58; }
 .button-danger { color: #bc5149; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; margin-bottom: 16px; }
+.stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 13px; margin-bottom: 16px; }
 .stat-card { background: white; border: 1px solid #edf0f1; border-radius: 9px; padding: 17px 17px 15px; min-height: 111px; }
 .stat-top { display: flex; justify-content: space-between; align-items: center; }
 .stat-label { color: #8d989d; font-size: 10px; font-weight: 550; }
@@ -112,6 +112,30 @@ button { cursor: pointer; }
 .status-cancelled { color: #53616a; background: #edf0f2; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 15px; }
 .toolbar-group { display: flex; align-items: center; gap: 8px; }
+.view-mode-toggle { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #e9edef; border-radius: 7px; background: #fafbfb; }
+.view-mode-toggle .button { padding: 6px 8px; }
+.view-mode-toggle .button.active { color: #34705b; border-color: #c8d9ce; background: #eaf2ee; }
+.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding: 0 15px 14px; }
+.record-card { min-width: 0; padding: 15px; }
+.record-card-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.record-card-icon { display: grid; place-items: center; width: 35px; height: 35px; flex: 0 0 auto; color: #4c8069; background: #eaf2ee; border-radius: 8px; }
+.record-card-heading h2 { margin: 0 0 4px; overflow-wrap: anywhere; color: #34413b; font: 16px Georgia,serif; }
+.record-card-heading small { color: #929b9e; font-size: 9px; }
+.record-card-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px 12px; margin-top: 14px; }
+.record-card-detail { display: grid; gap: 3px; min-width: 0; }
+.record-card-detail > span { color: #929b9e; font-size: 8px; text-transform: uppercase; letter-spacing: .45px; }
+.record-card-detail > strong { min-width: 0; overflow-wrap: anywhere; color: #53615e; font-size: 10px; font-weight: 550; }
+.record-card-select { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: #929b9e; font-size: 9px; }
+.record-card-file { margin-top: 12px; }
+.record-card-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #f0f2f2; }
+.record-grid.is-list { grid-template-columns: 1fr; }
+.record-grid.is-list .record-card { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; align-items: center; gap: 12px; }
+.record-grid.is-list .record-card-select { grid-column: 1 / -1; margin-bottom: 0; }
+.record-grid.is-list .record-card-details { grid-template-columns: repeat(3,minmax(0,1fr)); margin-top: 0; }
+.record-grid.is-list .record-card-file { margin-top: 0; }
+.record-grid.is-list .record-card-actions { margin-top: 0; padding-top: 0; border-top: 0; }
+.exam-sheet-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding: 0 15px 14px; }
+.exam-sheet-card { padding: 15px; }
 .heading-actions .media-upload-category { display: grid; gap: 4px; color: #7f8b86; font-size: 9px; font-weight: 600; }
 .media-upload-category select { min-width: 135px; border: 1px solid #e4e9e7; border-radius: 6px; padding: 7px 24px 7px 9px; color: #53615e; background: white; font-size: 10px; }
 .media-category-badge { display: inline-flex; width: fit-content; border-radius: 999px; padding: 3px 8px; color: #46765e; background: #edf5ef; font-size: 9px; font-weight: 600; white-space: nowrap; }
@@ -221,6 +245,18 @@ button { cursor: pointer; }
 .portal-search-panel .select-control { flex-shrink: 0; }
 .portal-search-panel > span { color: #929b9e; font-size: 10px; white-space: nowrap; }
 .portal-book-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+.portal-book-grid.is-list { grid-template-columns: 1fr; }
+.portal-book-grid.is-list .portal-book { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; column-gap: 14px; }
+.portal-book-grid.is-list .portal-book-cover { grid-row: 1 / span 6; margin-bottom: 0; }
+.portal-book-grid.is-list .portal-book-id,
+.portal-book-grid.is-list .portal-book-category,
+.portal-book-grid.is-list .portal-book h2,
+.portal-book-grid.is-list .portal-book-author,
+.portal-book-grid.is-list .portal-shelf,
+.portal-book-grid.is-list .portal-book-description,
+.portal-book-grid.is-list .portal-availability { grid-column: 2; }
+.portal-book-grid.is-list .portal-request-button,
+.portal-book-grid.is-list .portal-book > .button { grid-column: 2; justify-self: start; }
 .portal-book { padding: 18px; }
 .portal-book-cover { width: 42px; height: 50px; display: grid; place-items: center; margin-bottom: 15px; color: #4c8069; border-radius: 4px; background: linear-gradient(145deg,#e7f0ea,#d4e3d9); }
 .portal-book-id { margin-bottom: 5px; color: #929b9e; font-size: 9px; overflow-wrap: anywhere; }
@@ -237,7 +273,12 @@ button { cursor: pointer; }
 .portal-loans-stack { display: grid; gap: 15px; }
 .portal-loan-panel, .portal-media-panel { margin-bottom: 15px; overflow: hidden; }
 .portal-media-grid { display: grid; padding: 4px 18px 16px; }
+.portal-media-grid.is-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px; padding-top: 4px; }
 .portal-media-item { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 11px 0; border-top: 1px solid #f0f2f2; }
+.portal-media-grid.is-grid .portal-media-item { align-items: flex-start; flex-direction: column; padding: 14px; border: 1px solid #edf0f1; border-radius: 8px; }
+.portal-media-grid.is-grid .portal-media-info { width: 100%; }
+.portal-media-grid.is-grid .portal-media-info strong { overflow-wrap: anywhere; white-space: normal; }
+.portal-media-grid.is-grid .portal-media-item .button { margin-top: auto; }
 .portal-media-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; color: #4c8069; background: #eaf2ee; border-radius: 8px; }
 .portal-media-info { display: grid; gap: 4px; min-width: 0; flex: 1; }
 .portal-media-info strong { overflow: hidden; color: #3b4748; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -367,6 +408,9 @@ button { cursor: pointer; }
 .dark .portal-media-icon { color: #a8d4bb; background: #263d33; }
 .dark .portal-media-info strong { color: #d3ded8; }
 .dark .portal-media-item { border-color: #2b3a34; }
+.dark .record-card-heading h2 { color: #e3ece6; }
+.dark .record-card-detail > strong { color: #bdc9c2; }
+.dark .record-card-actions { border-color: #2b3a34; }
 .dark .book-category-count { border-color: #35463e; }
 .dark .book-category-count span { color: #bac8c0; }
 .dark .book-category-count strong { color: #e3ece6; }
@@ -475,6 +519,11 @@ button { cursor: pointer; }
   .topbar-left { gap: 9px; }
   .page-content { padding: 24px 16px 35px; }
   .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .record-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .exam-sheet-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .record-grid.is-list .record-card { grid-template-columns: minmax(0,1fr) auto; }
+  .record-grid.is-list .record-card-details { grid-column: 1 / -1; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .record-grid.is-list .record-card-actions { grid-column: 2; grid-row: 1; }
   .chart-grid { grid-template-columns: 1fr; }
   .category-list { padding-bottom: 16px; }
   .page-heading { align-items: flex-start; }
@@ -484,8 +533,14 @@ button { cursor: pointer; }
   .hide-mobile { display: none; }
   .report-grid { grid-template-columns: 1fr; }
   .portal-book-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .portal-book-grid.is-list .portal-book { grid-template-columns: auto minmax(0,1fr); }
+  .portal-book-grid.is-list .portal-request-button,
+  .portal-book-grid.is-list .portal-book > .button { grid-column: 2; grid-row: auto; }
+  .portal-media-grid.is-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .portal-topbar { padding: 0 15px; }
   .portal-content { padding: 27px 16px 38px; }
+  .portal-search-panel { flex-wrap: wrap; }
+  .portal-search-panel .table-search { min-width: 0; width: 100%; }
   .toolbar { align-items: flex-start; flex-direction: column; }
   .toolbar-group { min-width: 0; flex-wrap: wrap; }
   .toolbar-group[style] { width: 100%; }
@@ -531,6 +586,12 @@ button { cursor: pointer; }
   .page-heading { flex-direction: column; }
   .heading-actions { justify-content: flex-start; }
   .portal-book-grid { grid-template-columns: 1fr; }
+  .portal-book-grid.is-list .portal-book { grid-template-columns: auto minmax(0,1fr); }
+  .portal-book-grid.is-list .portal-book-cover { grid-row: auto; }
+  .portal-media-grid.is-grid { grid-template-columns: 1fr; }
+  .record-grid { grid-template-columns: 1fr; }
+  .exam-sheet-grid { grid-template-columns: 1fr; }
+  .record-grid.is-list .record-card { grid-template-columns: minmax(0,1fr) auto; }
   .portal-stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .portal-tabs { width: 100%; overflow-x: auto; }
   .portal-tabs .nav-item { flex: 0 0 auto; padding: 9px 11px; }

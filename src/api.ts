@@ -22,6 +22,7 @@ type QueuedAction = { id: string; userId: string; path: string; data: unknown };
 
 const EMPTY_DASHBOARD = {
   totalBooks: 0,
+  totalExamSheets: 0,
   availableBooks: 0,
   borrowedBooks: 0,
   activeStudents: 0,

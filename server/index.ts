@@ -139,6 +139,7 @@ app.use("/api", authenticate, (req: AuthRequest, res: Response, next: NextFuncti
   if (req.user?.role !== "MEMBER") { next(); return; }
   const memberRead = req.method === "GET" && (
     ["/books", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
+    /^\/(books|exam-sheets)\/[^/]+\/file$/.test(req.path) ||
     /^\/media\/[^/]+\/file$/.test(req.path)
   );
   const memberReservation = req.method === "POST" &&
@@ -1204,7 +1205,11 @@ const cloudinaryUpload = multer({
 
 function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiResponse> {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream({ resource_type: "auto", access_mode: "public" }, (error, result) => {
+    const stream = cloudinary.uploader.upload_stream({
+      resource_type: file.mimetype.toLowerCase() === "application/pdf" ? "image" : "auto",
+      type: "upload",
+      access_mode: "public",
+    }, (error, result) => {
       if (error) {
         reject(error);
         return;
@@ -1254,6 +1259,55 @@ app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRout
     public_id: uploaded.public_id,
     resource_type: uploaded.resource_type,
   });
+}));
+
+function cloudinaryPdfDeliveryUrl(filePath: string): string | null {
+  try {
+    const url = new URL(filePath);
+    if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com") return null;
+    const parts = url.pathname.split("/");
+    const uploadIndex = parts.findIndex((part, index) => part === "upload" && parts[index - 1] === "image");
+    if (uploadIndex < 0) return null;
+    if (parts.slice(uploadIndex + 1).includes("fl_attachment")) return url.href;
+    parts.splice(uploadIndex + 1, 0, "fl_attachment");
+    url.pathname = parts.join("/");
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+async function proxyCloudinaryPdf(filePath: string, res: Response): Promise<boolean> {
+  const deliveryUrl = cloudinaryPdfDeliveryUrl(filePath);
+  if (!deliveryUrl) return false;
+
+  let upstream: Awaited<ReturnType<typeof fetch>>;
+  try {
+    upstream = await fetch(deliveryUrl);
+  } catch {
+    throw new ApiError(502, "Unable to retrieve the PDF from Cloudinary.");
+  }
+  if (!upstream.ok) {
+    throw new ApiError(502, `Cloudinary refused PDF delivery (HTTP ${upstream.status}).`);
+  }
+  res.type("application/pdf").set("Content-Disposition", "inline").send(Buffer.from(await upstream.arrayBuffer()));
+  return true;
+}
+
+app.get("/api/books/:id/file", asyncRoute(async (req, res) => {
+  const book = await prisma.book.findUnique({ where: { id: req.params.id }, select: { filePath: true } });
+  if (!book?.filePath) { res.status(404).json({ error: "Book file not found." }); return; }
+  if (await proxyCloudinaryPdf(book.filePath, res)) return;
+  if (isSecureFileUrl(book.filePath)) { res.redirect(302, book.filePath); return; }
+  res.status(404).json({ error: "Book file is unavailable." });
+}));
+
+app.get("/api/exam-sheets/:id/file", asyncRoute(async (req, res) => {
+  const examSheet = await prisma.examSheet.findUnique({ where: { id: req.params.id }, select: { filePath: true } });
+  if (!examSheet?.filePath) { res.status(404).json({ error: "Exam sheet file not found." }); return; }
+  if (await proxyCloudinaryPdf(examSheet.filePath, res)) return;
+  if (isSecureFileUrl(examSheet.filePath)) { res.redirect(302, examSheet.filePath); return; }
+  res.status(404).json({ error: "Exam sheet file is unavailable." });
 }));
 
 app.get("/api/media", asyncRoute(async (req, res) => {
@@ -1331,10 +1385,12 @@ app.delete("/api/media/:id", requireStaff, asyncRoute(async (req, res) => {
 app.get("/api/media/:id/file", (req: AuthRequest, res: Response, next: NextFunction) => {
   void prisma.mediaAsset.findUnique({ where: { id: req.params.id } }).then((media) => {
     if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
-    if (isSecureFileUrl(media.filePath)) {
-      res.redirect(302, media.filePath);
+    const isPdf = media.mediaType.toUpperCase() === "PDF" || media.mimeType.toLowerCase() === "application/pdf" || media.fileName.toLowerCase().endsWith(".pdf");
+    if (isPdf && cloudinaryPdfDeliveryUrl(media.filePath)) {
+      void proxyCloudinaryPdf(media.filePath, res).catch(next);
       return;
     }
+    if (isSecureFileUrl(media.filePath)) { res.redirect(302, media.filePath); return; }
     const fileName = path.basename(media.filePath);
     if (!fileName) { res.status(404).json({ error: "Media file is unavailable." }); return; }
     res.type(media.mimeType).sendFile(path.resolve(uploadDirectory, fileName), (error) => {

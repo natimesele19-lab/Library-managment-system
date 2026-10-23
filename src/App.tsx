@@ -169,6 +169,14 @@ const secureFileUrl = (value: unknown) => {
     return "";
   }
 };
+const isCloudinaryUrl = (value: unknown) => {
+  if (typeof value !== "string") return false;
+  try {
+    return new URL(value).hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+};
 const toFiniteNumber = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -881,12 +889,15 @@ function App() {
     try {
       const storedUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
       const filePath = toText(record.filePath || record.url);
-      const url = storedUrl || URL.createObjectURL(await download(`/media/${record.id}/file`));
       const mimeType = toText(record.mimeType).toLowerCase();
-      const type = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath)
-        ? "PDF"
+      const isPdf = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
+      const type = isPdf ? "PDF"
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+      const fileEndpoint = page === "books" ? `/books/${record.id}/file` : page === "examSheets" ? `/exam-sheets/${record.id}/file` : `/media/${record.id}/file`;
+      const url = isPdf && (isCloudinaryUrl(record.filePath) || isCloudinaryUrl(record.url))
+        ? URL.createObjectURL(await download(fileEndpoint))
+        : storedUrl || URL.createObjectURL(await download(fileEndpoint));
       setMediaPreview({ title: toText(record.title), type, url });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to open media.");
@@ -1419,12 +1430,20 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
       if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
       const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
       const filePath = toText(item.filePath || item.url);
-      const url = storedUrl || URL.createObjectURL(await download(`/media/${item.id}/file`));
       const mimeType = toText(item.mimeType).toLowerCase();
-      const type = toText(item.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath)
-        ? "PDF"
+      const isPdf = toText(item.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
+      const type = isPdf ? "PDF"
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(item.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
+      const key = toText(item.key);
+      const fileEndpoint = item.catalogType === "BOOK" || key.startsWith("book:")
+        ? `/books/${item.id}/file`
+        : item.catalogType === "EXAM_SHEET" || key.startsWith("exam-sheet:")
+          ? `/exam-sheets/${item.id}/file`
+          : `/media/${item.id}/file`;
+      const url = isPdf && (isCloudinaryUrl(item.filePath) || isCloudinaryUrl(item.url))
+        ? URL.createObjectURL(await download(fileEndpoint))
+        : storedUrl || URL.createObjectURL(await download(`/media/${item.id}/file`));
       setPreview({ title: toText(item.title), type, url });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("mediaUnavailable"));

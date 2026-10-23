@@ -34,7 +34,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
 - Protected, validated PDF/audio uploads and delivery; uploads are limited to PDF and common audio formats and 50 MB. XLSX/DOCX imports are capped at 5 MB and 5,000 rows.
 - Categorized digital resources (Textbooks, Reference, Fiction, Research Papers, Course Material, or Other), with media-type/category filters and staff deletion of both the media record and its uploaded file.
-- Staff-only Cloudinary uploads for supported image, PDF, and audio files; uploads return a secure URL for storing with the relevant library record.
+- Staff-only Cloudinary uploads for supported image, PDF, and audio files; uploaded assets use public access so their returned secure URLs can be opened by users and stored with the relevant library record.
 - Camera-based QR/barcode scanning for checkout and returns (requires HTTPS or localhost and camera permission).
 - Daily overdue reminder emails with persisted per-book/per-day delivery records; configure SMTP to enable delivery.
 - Separate staff and student/teacher sign-in with distinct role tabs; members can use their member code or email and are restricted to their personal portal. Admins can set or reset a portal password while adding or editing a patron, or use the dedicated password action; member codes can be custom or auto-generated. Passwords are stored as hashes on linked portal accounts; there is no public account registration.

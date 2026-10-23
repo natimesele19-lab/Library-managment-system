@@ -1156,7 +1156,7 @@ const cloudinaryUpload = multer({
 
 function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiResponse> {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream({ resource_type: "auto" }, (error, result) => {
+    const stream = cloudinary.uploader.upload_stream({ resource_type: "auto", access_mode: "public" }, (error, result) => {
       if (error) {
         reject(error);
         return;

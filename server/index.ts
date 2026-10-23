@@ -448,13 +448,13 @@ app.put("/api/exam-sheets/:id", requireStaff, asyncRoute(async (req, res) => {
       if (key === "title" && !requiredText(body[key])) { res.status(400).json({ error: "Exam sheet title is required." }); return; }
       Object.assign(data, { [key]: optionalText(body[key]) });
     }
-    if ("filePath" in body) {
-      if (body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
-        res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
-        return;
-      }
-      data.filePath = optionalText(body.filePath) || null;
+  }
+  if ("filePath" in body) {
+    if (body.filePath !== null && body.filePath !== "" && !isSecureFileUrl(body.filePath)) {
+      res.status(400).json({ error: "File URL must be a valid HTTPS URL." });
+      return;
     }
+    data.filePath = optionalText(body.filePath) || null;
   }
   if ("examYear" in body) data.examYear = optionalYear(body.examYear);
   if ("copies" in body) {

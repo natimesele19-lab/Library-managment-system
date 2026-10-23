@@ -1328,12 +1328,25 @@ app.delete("/api/media/:id", requireStaff, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.get("/api/media/:id/file", asyncRoute(async (req, res) => {
-  const media = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
-  if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
-  if (isSecureFileUrl(media.filePath)) { res.redirect(media.filePath); return; }
-  res.type(media.mimeType).sendFile(path.resolve(uploadDirectory, path.basename(media.filePath)));
-}));
+app.get("/api/media/:id/file", (req: AuthRequest, res: Response, next: NextFunction) => {
+  void prisma.mediaAsset.findUnique({ where: { id: req.params.id } }).then((media) => {
+    if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
+    if (isSecureFileUrl(media.filePath)) {
+      res.redirect(302, media.filePath);
+      return;
+    }
+    const fileName = path.basename(media.filePath);
+    if (!fileName) { res.status(404).json({ error: "Media file is unavailable." }); return; }
+    res.type(media.mimeType).sendFile(path.resolve(uploadDirectory, fileName), (error) => {
+      if (!error || res.headersSent) return;
+      if ("code" in error && error.code === "ENOENT") {
+        res.status(404).json({ error: "Media file is unavailable." });
+        return;
+      }
+      next(error);
+    });
+  }).catch(next);
+});
 
 app.get("/api/custom-fields", asyncRoute(async (req, res) => {
   const entity = typeof req.query.entity === "string" ? req.query.entity : "";

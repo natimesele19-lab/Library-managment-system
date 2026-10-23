@@ -176,17 +176,20 @@ async function openPdfInNewTab(record: Row): Promise<boolean> {
   if (!isPdf) return false;
 
   const secureUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
-  const tab = window.open(secureUrl || "about:blank", "_blank");
+  if (secureUrl) {
+    window.open(secureUrl, "_blank");
+    return true;
+  }
+
+  const tab = window.open("about:blank", "_blank");
   if (!tab) throw new Error("Allow pop-ups to open PDF files.");
   tab.opener = null;
-  if (!secureUrl) {
-    try {
-      const file = await download(`/media/${record.id}/file`);
-      tab.location.href = URL.createObjectURL(file);
-    } catch (cause) {
-      tab.close();
-      throw cause;
-    }
+  try {
+    const file = await download(`/media/${record.id}/file`);
+    tab.location.href = URL.createObjectURL(file);
+  } catch (cause) {
+    tab.close();
+    throw cause;
   }
   return true;
 }

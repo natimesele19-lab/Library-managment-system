@@ -1294,6 +1294,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const [reservations, setReservations] = useState<PortalReservation[]>([]);
   const [media, setMedia] = useState<Row[]>([]);
   const [query, setQuery] = useState("");
+  const [catalogTypeFilter, setCatalogTypeFilter] = useState<"ALL" | "BOOK" | "EXAM_SHEET">("ALL");
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -1353,6 +1354,9 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
     ...books.map((book): Row & { catalogType: "BOOK" } => ({ ...book, catalogType: "BOOK" })),
     ...examSheets.map((examSheet): Row & { catalogType: "EXAM_SHEET" } => ({ ...examSheet, catalogType: "EXAM_SHEET" })),
   ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
+  const filteredCatalogItems = catalogTypeFilter === "ALL"
+    ? catalogItems
+    : catalogItems.filter((item) => item.catalogType === catalogTypeFilter);
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -1426,8 +1430,11 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <PortalMediaSection media={media.slice(0, 4)} loading={loading.media} onOpen={openMedia} t={t} />
         </>}
         {tab === "catalog" && <>
-          <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><span>{catalogItems.length} {t("catalogItems").toLowerCase()}</span></section>
-          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : catalogItems.length ? <div className="portal-book-grid">{catalogItems.map((item) => {
+          <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label={t("filterCatalogType")} className="select-control" value={catalogTypeFilter} onChange={(event) => {
+            const value = event.target.value;
+            if (value === "ALL" || value === "BOOK" || value === "EXAM_SHEET") setCatalogTypeFilter(value);
+          }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select><span>{filteredCatalogItems.length} {t("catalogItems").toLowerCase()}</span></section>
+          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : filteredCatalogItems.length ? <div className="portal-book-grid">{filteredCatalogItems.map((item) => {
             const isBook = item.catalogType === "BOOK";
             const activeRequest = activeReservations.find((reservation) =>
               isBook ? reservation.bookId === item.id : reservation.examSheetId === item.id);

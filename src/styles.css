@@ -218,6 +218,7 @@ button { cursor: pointer; }
 .portal-tabs .nav-item { padding: 9px 14px; }
 .portal-search-panel { margin-bottom: 17px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .portal-search-panel .table-search { flex: 1; max-width: 480px; }
+.portal-search-panel .select-control { flex-shrink: 0; }
 .portal-search-panel > span { color: #929b9e; font-size: 10px; white-space: nowrap; }
 .portal-book-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
 .portal-book { padding: 18px; }

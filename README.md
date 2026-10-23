@@ -35,12 +35,12 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
 - Validated PDF/audio uploads and delivery; uploads are limited to PDF and common audio formats and 50 MB. XLSX/DOCX imports are capped at 5 MB and 5,000 rows.
 - Categorized digital resources (Textbooks, Reference, Fiction, Research Papers, Course Material, or Other), searchable by students and teachers, with media-type/category filters and staff deletion of media records.
-- Staff-only Cloudinary uploads for supported image, PDF, and audio files; media, book, and exam-sheet records retain the complete secure URL for direct opening. Existing local media remains available through the API file-delivery fallback.
+- Staff-only Cloudinary uploads for supported image, PDF, and audio files; PDF files open in the in-app viewer through authenticated backend routes using short-lived, Cloudinary-signed download URLs. Other supported media retain secure Cloudinary URLs, and existing local media remains available through the API file-delivery fallback.
 - Camera-based QR/barcode scanning for checkout and returns (requires HTTPS or localhost and camera permission).
 - Daily overdue reminder emails with persisted per-book/per-day delivery records; configure SMTP to enable delivery.
 - Separate staff and student/teacher sign-in with distinct role tabs; members can use their member code or email and are restricted to their personal portal. Admins can set or reset a portal password while adding or editing a patron, or use the dedicated password action; member codes can be custom or auto-generated. Passwords are stored as hashes on linked portal accounts; there is no public account registration.
 - Member dashboard with active loans, due dates, currently accrued overdue fines, and returned-loan history; searchable catalog with online reservation requests and cancellation. Staff have a live-refreshing reservation queue to approve, issue (creating an active loan and updating book availability), or cancel requests.
-- Student and teacher portals include a searchable Digital Media tab for linked books, exam sheets, PDFs, and other digital resources, with direct secure-URL previews for Cloudinary documents.
+- Student and teacher portals include a searchable Digital Media tab for linked books, exam sheets, PDFs, and other digital resources, with in-app PDF previews delivered through the authenticated backend.
 
 ## API outline
 

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import { Readable } from "node:stream";
@@ -1261,36 +1262,70 @@ app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRout
   });
 }));
 
-function cloudinaryPdfDeliveryUrl(filePath: string): string | null {
+function cloudinaryPrivatePdfDownloadUrl(filePath: string): string | null {
+  let url: URL;
   try {
-    const url = new URL(filePath);
-    if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com") return null;
-    const parts = url.pathname.split("/");
-    const uploadIndex = parts.findIndex((part, index) => part === "upload" && parts[index - 1] === "image");
-    if (uploadIndex < 0) return null;
-    if (parts.slice(uploadIndex + 1).includes("fl_attachment")) return url.href;
-    parts.splice(uploadIndex + 1, 0, "fl_attachment");
-    url.pathname = parts.join("/");
-    return url.href;
+    url = new URL(filePath);
   } catch {
     return null;
+  }
+  if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com") return null;
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    throw new ApiError(503, "Cloudinary PDF delivery is not configured.");
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  const resourceType = parts[1];
+  const deliveryType = parts[2];
+  if (parts[0] !== process.env.CLOUDINARY_CLOUD_NAME ||
+      (resourceType !== "image" && resourceType !== "raw") ||
+      deliveryType !== "upload") {
+    throw new ApiError(502, "The stored Cloudinary PDF URL cannot be securely resolved.");
+  }
+
+  const versionIndex = parts.findIndex((part, index) => index > 2 && /^v\d+$/.test(part));
+  if (versionIndex < 0 || versionIndex === parts.length - 1) {
+    throw new ApiError(502, "The stored Cloudinary PDF URL does not include a valid asset version.");
+  }
+  const publicIdWithExtension = parts.slice(versionIndex + 1).join("/");
+  const extension = path.extname(publicIdWithExtension).slice(1).toLowerCase();
+  if (extension !== "pdf") throw new ApiError(415, "The stored Cloudinary asset is not a PDF.");
+  const publicId = resourceType === "raw" ? publicIdWithExtension : publicIdWithExtension.slice(0, -4);
+
+  return cloudinary.utils.private_download_url(publicId, resourceType === "raw" ? "" : extension, {
+    resource_type: resourceType,
+    type: deliveryType,
+    expires_at: Math.floor(Date.now() / 1000) + 300,
+    attachment: false,
+  });
+}
+
+function isCloudinaryHost(filePath: string): boolean {
+  try {
+    return new URL(filePath).hostname === "res.cloudinary.com";
+  } catch {
+    return false;
   }
 }
 
 async function proxyCloudinaryPdf(filePath: string, res: Response): Promise<boolean> {
-  const deliveryUrl = cloudinaryPdfDeliveryUrl(filePath);
-  if (!deliveryUrl) return false;
+  const downloadUrl = cloudinaryPrivatePdfDownloadUrl(filePath);
+  if (!downloadUrl) return false;
 
   let upstream: Awaited<ReturnType<typeof fetch>>;
   try {
-    upstream = await fetch(deliveryUrl);
+    upstream = await fetch(downloadUrl);
   } catch {
     throw new ApiError(502, "Unable to retrieve the PDF from Cloudinary.");
   }
   if (!upstream.ok) {
     throw new ApiError(502, `Cloudinary refused PDF delivery (HTTP ${upstream.status}).`);
   }
-  res.type("application/pdf").set("Content-Disposition", "inline").send(Buffer.from(await upstream.arrayBuffer()));
+  if (!upstream.body) throw new ApiError(502, "Cloudinary returned an empty PDF response.");
+  res.type("application/pdf").set("Content-Disposition", "inline");
+  const contentLength = upstream.headers.get("content-length");
+  if (contentLength) res.set("Content-Length", contentLength);
+  await pipeline(Readable.fromWeb(upstream.body), res);
   return true;
 }
 
@@ -1386,7 +1421,7 @@ app.get("/api/media/:id/file", (req: AuthRequest, res: Response, next: NextFunct
   void prisma.mediaAsset.findUnique({ where: { id: req.params.id } }).then((media) => {
     if (!media) { res.status(404).json({ error: "Media file not found." }); return; }
     const isPdf = media.mediaType.toUpperCase() === "PDF" || media.mimeType.toLowerCase() === "application/pdf" || media.fileName.toLowerCase().endsWith(".pdf");
-    if (isPdf && cloudinaryPdfDeliveryUrl(media.filePath)) {
+    if (isPdf && isCloudinaryHost(media.filePath)) {
       void proxyCloudinaryPdf(media.filePath, res).catch(next);
       return;
     }

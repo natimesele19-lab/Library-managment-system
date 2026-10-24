@@ -127,6 +127,7 @@ model Loan {
   patron      Patron     @relation(fields: [patronId], references: [id], onDelete: Restrict)
   borrowerType PatronType @default(STUDENT)
   issuedAt    DateTime   @default(now())
+  borrowDate  DateTime   @default(now())
   dueDate     DateTime
   status      LoanStatus @default(ACTIVE)
   createdAt   DateTime   @default(now())

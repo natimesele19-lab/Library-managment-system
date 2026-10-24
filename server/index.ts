@@ -649,6 +649,14 @@ function getBorrowerTypeFilter(value: unknown): PatronType | "ALL" | null {
   return value === "STUDENT" || value === "TEACHER" || value === "ALL" ? value : null;
 }
 
+const LEGACY_BORROW_DATE = new Date("2026-09-15T00:00:00.000Z");
+
+function parseDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date;
+}
+
 app.get("/api/loans", asyncRoute(async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : "ALL";
   if (!["ALL", "ACTIVE", "OVERDUE", "RETURNED"].includes(status)) { res.status(400).json({ error: "Invalid loan status filter." }); return; }
@@ -695,7 +703,8 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
     return {
       id: item.id, loanItemId: item.id, loanId: loan.id, itemType: item.bookId ? "BOOK" : "EXAM_SHEET",
       title: item.book?.title ?? item.examSheet?.title ?? "Unknown item", author: item.book?.author ?? item.examSheet?.subject ?? "",
-      borrowerName: loan.patron?.name ?? "Unknown borrower", memberCode: loan.patron?.memberCode ?? "", borrowerType: loan.borrowerType, dueDate: loan.dueDate.toISOString(),
+      borrowerName: loan.patron?.name ?? "Unknown borrower", memberCode: loan.patron?.memberCode ?? "", borrowerType: loan.borrowerType,
+      borrowDate: (loan.borrowDate ?? LEGACY_BORROW_DATE).toISOString(), dueDate: loan.dueDate.toISOString(),
       returnedAt: item.returnedAt?.toISOString() || null, status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
       fine, finePaid: paid, fineRemaining: Math.max(0, fine - paid),
     };
@@ -707,14 +716,15 @@ app.get("/api/loans", asyncRoute(async (req, res) => {
 app.put("/api/loans/items/:id", requireStaff, asyncRoute(async (req, res) => {
   const typeFilter = getBorrowerTypeFilter(req.query.type);
   if (!typeFilter || typeFilter === "ALL") { res.status(400).json({ error: "A valid patron type is required." }); return; }
-  const { dueDate } = req.body as { dueDate?: unknown };
-  if (typeof dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+  const { borrowDate, dueDate } = req.body as { borrowDate?: unknown; dueDate?: unknown };
+  const parsedDueDate = parseDateOnly(dueDate);
+  const parsedBorrowDate = borrowDate === undefined ? undefined : parseDateOnly(borrowDate);
+  if (!parsedDueDate) {
     res.status(400).json({ error: "Enter a valid due date." });
     return;
   }
-  const parsedDueDate = new Date(`${dueDate}T00:00:00.000Z`);
-  if (Number.isNaN(parsedDueDate.getTime()) || parsedDueDate.toISOString().slice(0, 10) !== dueDate) {
-    res.status(400).json({ error: "Enter a valid due date." });
+  if (borrowDate !== undefined && !parsedBorrowDate) {
+    res.status(400).json({ error: "Enter a valid borrow date." });
     return;
   }
   const loan = await prisma.$transaction(async (transaction) => {
@@ -725,12 +735,16 @@ app.put("/api/loans/items/:id", requireStaff, asyncRoute(async (req, res) => {
     if (!item) throw new ApiError(404, "Borrowing record not found.");
     return transaction.loan.update({
       where: { id: item.loanId },
-      data: { dueDate: parsedDueDate },
-      select: { id: true, dueDate: true },
+      data: { ...(parsedBorrowDate ? { borrowDate: parsedBorrowDate } : {}), dueDate: parsedDueDate },
+      select: { id: true, borrowDate: true, dueDate: true },
     });
   });
-  await audit(req, "UPDATE", "LOAN_ITEM", req.params.id, { loanId: loan.id, dueDate: loan.dueDate.toISOString() });
-  res.json({ dueDate: loan.dueDate.toISOString() });
+  await audit(req, "UPDATE", "LOAN_ITEM", req.params.id, {
+    loanId: loan.id,
+    ...(parsedBorrowDate ? { borrowDate: loan.borrowDate.toISOString() } : {}),
+    dueDate: loan.dueDate.toISOString(),
+  });
+  res.json({ borrowDate: loan.borrowDate.toISOString(), dueDate: loan.dueDate.toISOString() });
 }));
 
 const clearResolvedBorrowings = asyncRoute(async (req, res) => {
@@ -815,6 +829,7 @@ app.get("/api/portal/loans", asyncRoute(async (req, res) => {
       title: item.book?.title ?? item.examSheet?.title ?? "Unknown item",
       author: item.book?.author ?? item.examSheet?.subject ?? "",
       issuedAt: loan.issuedAt.toISOString(),
+      borrowDate: (loan.borrowDate ?? LEGACY_BORROW_DATE).toISOString(),
       dueDate: loan.dueDate.toISOString(),
       returnedAt: item.returnedAt?.toISOString() || null,
       status: item.returnedAt ? "RETURNED" : loan.dueDate < today ? "OVERDUE" : "CHECKED_OUT",
@@ -1018,7 +1033,7 @@ app.post("/api/notifications/overdue/run", requireAdmin, asyncRoute(async (_req,
 }));
 
 app.post("/api/loans", asyncRoute(async (req, res) => {
-  const { patronId, patronType, bookIds, dueDate } = req.body as { patronId?: unknown; patronType?: unknown; bookIds?: unknown; dueDate?: unknown; items?: unknown };
+  const { patronId, patronType, bookIds, borrowDate, dueDate } = req.body as { patronId?: unknown; patronType?: unknown; bookIds?: unknown; borrowDate?: unknown; dueDate?: unknown; items?: unknown };
   const rawItems: unknown = req.body.items;
   const requestedItems: { type: unknown; id: unknown }[] = Array.isArray(rawItems)
     ? rawItems.flatMap((rawItem: unknown) => {
@@ -1031,6 +1046,11 @@ app.post("/api/loans", asyncRoute(async (req, res) => {
   earliestDueDate.setUTCHours(0, 0, 0, 0);
   if (typeof patronId !== "string" || !patronId || requestedItems.length < 1 || requestedItems.length > 20 || typeof dueDate !== "string" || !dueDate || Number.isNaN(Date.parse(dueDate)) || Date.parse(dueDate) < earliestDueDate.getTime()) {
     res.status(400).json({ error: "A borrower, 1–20 items, and a valid due date are required." });
+    return;
+  }
+  const parsedBorrowDate = borrowDate === undefined ? new Date() : parseDateOnly(borrowDate);
+  if (!parsedBorrowDate) {
+    res.status(400).json({ error: "Enter a valid borrow date." });
     return;
   }
   if (patronType !== "STUDENT" && patronType !== "TEACHER") {
@@ -1058,7 +1078,7 @@ app.post("/api/loans", asyncRoute(async (req, res) => {
     }
     return transaction.loan.create({
       data: {
-        patronId, borrowerType: patron.type, dueDate: new Date(dueDate),
+        patronId, borrowerType: patron.type, borrowDate: parsedBorrowDate, dueDate: new Date(dueDate),
         loanItems: { create: requestedItems.map((item) => item.type === "BOOK" ? { bookId: item.id as string } : { examSheetId: item.id as string }) },
       }, include: { loanItems: true },
     });

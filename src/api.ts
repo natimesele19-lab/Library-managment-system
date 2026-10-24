@@ -171,7 +171,7 @@ function pendingRecords(path: string, records: Record<string, unknown>[]): Recor
           id: `${action.id}-${index}`, loanItemId: `${action.id}-${index}`, loanId: action.id,
           itemType: item.type, title: resource?.title ?? "Offline queued item", author: resource?.author ?? resource?.subject ?? "",
           borrowerName: patron?.name ?? "", memberCode: patron?.memberCode ?? "", patronId: data.patronId,
-          borrowerType: data.patronType, dueDate: data.dueDate, status: "CHECKED_OUT", fine: 0, finePaid: 0, fineRemaining: 0,
+          borrowerType: data.patronType, borrowDate: data.borrowDate, dueDate: data.dueDate, status: "CHECKED_OUT", fine: 0, finePaid: 0, fineRemaining: 0,
           offlinePending: true,
         });
       }

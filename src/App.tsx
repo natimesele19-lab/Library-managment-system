@@ -18,6 +18,7 @@ import { CameraScanner } from "./CameraScanner";
 import { BorrowerLookup } from "./BorrowerLookup";
 import { IDCard, type IDCardPatron } from "./IDCard";
 import { ExamSheetsPage } from "./ExamSheetsPage";
+import { DatePickerInput, ethiopianDateToGregorian, formatEthiopianDate, gregorianDateToEthiopian, todayEthiopianDate } from "./EthiopianDateInput";
 
 type Page = "dashboard" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
 type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
@@ -698,7 +699,10 @@ function App() {
 
   function openBorrowingEdit(record: Row) {
     setEditingBorrowing(record);
-    setForm({ dueDate: toText(record.dueDate).slice(0, 10) });
+    setForm({
+      borrowDate: gregorianDateToEthiopian(toText(record.borrowDate) || "2026-09-15") || "",
+      dueDate: gregorianDateToEthiopian(toText(record.dueDate)) || "",
+    });
     setError("");
     setModal("editBorrowing");
   }
@@ -706,11 +710,17 @@ function App() {
   async function saveBorrowingEdit(event: FormEvent) {
     event.preventDefault();
     if (!editingBorrowing) return;
+    const borrowDate = ethiopianDateToGregorian(form.borrowDate || "");
+    const dueDate = ethiopianDateToGregorian(form.dueDate || "");
+    if (!borrowDate || !dueDate) {
+      setError(t("invalidEthiopianDate"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
-      await api.put(`/loans/items/${editingBorrowing.loanItemId || editingBorrowing.id}?type=${patronType}`, { dueDate: form.dueDate });
+      await api.put(`/loans/items/${editingBorrowing.loanItemId || editingBorrowing.id}?type=${patronType}`, { borrowDate, dueDate });
       setModal(null);
       setEditingBorrowing(null);
       setSuccess(t("recordSaved"));
@@ -819,7 +829,12 @@ function App() {
 
   async function openBorrowModal(patron?: Row) {
     setError("");
-    setForm({ dueDate: dateAfterDays(14), itemKeys: "", ...(patron ? { patronId: patron.id } : {}) });
+    setForm({
+      borrowDate: todayEthiopianDate(),
+      dueDate: gregorianDateToEthiopian(dateAfterDays(14)) || "",
+      itemKeys: "",
+      ...(patron ? { patronId: patron.id } : {}),
+    });
     setModal("borrow");
     try {
       const patronType = page === "teacherBorrowing" ? "TEACHER" : "STUDENT";
@@ -930,7 +945,7 @@ function App() {
   async function exportFile(format: "xlsx" | "docx") {
     try {
       const isBorrowingPage = page === "circulation" || page === "teacherBorrowing";
-      const borrowingColumns = [t("id"), t("title"), t("borrower"), t("memberCode"), t("dueDate"), t("status"), t("fine")];
+      const borrowingColumns = [t("id"), t("title"), t("borrower"), t("memberCode"), t("borrowDate"), t("dueDate"), t("status"), t("fine")];
       const rows = visibleRecords.map((record) => {
         if (isBorrowingPage) {
           return {
@@ -938,9 +953,10 @@ function App() {
             [borrowingColumns[1]]: toText(record.title),
             [borrowingColumns[2]]: toText(record.borrowerName),
             [borrowingColumns[3]]: toText(record.memberCode),
-            [borrowingColumns[4]]: toText(record.dueDate).slice(0, 10),
-            [borrowingColumns[5]]: toText(record.status),
-            [borrowingColumns[6]]: formatMoney(record.fineRemaining, t("ethiopianBirr")),
+            [borrowingColumns[4]]: formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language),
+            [borrowingColumns[5]]: formatEthiopianDate(toText(record.dueDate), i18n.language),
+            [borrowingColumns[6]]: toText(record.status),
+            [borrowingColumns[7]]: formatMoney(record.fineRemaining, t("ethiopianBirr")),
           };
         }
         const values = Object.fromEntries(Object.entries(record).filter(([key]) => !["id", "createdAt", "updatedAt"].includes(key)));
@@ -1071,6 +1087,12 @@ function App() {
 
   async function issueBooks(event: FormEvent) {
     event.preventDefault();
+    const borrowDate = ethiopianDateToGregorian(form.borrowDate || "");
+    const dueDate = ethiopianDateToGregorian(form.dueDate || "");
+    if (!borrowDate || !dueDate) {
+      setError(t("invalidEthiopianDate"));
+      return;
+    }
     setBusy(true);
     try {
       await api.post("/loans", {
@@ -1080,7 +1102,8 @@ function App() {
           const [type, ...idParts] = key.split(":");
           return { type, id: idParts.join(":") };
         }),
-        dueDate: form.dueDate,
+        borrowDate,
+        dueDate,
       });
       setModal(null);
       setForm({});
@@ -1205,7 +1228,10 @@ function App() {
           <button className="row-action" aria-label={t("cancel")} onClick={() => setModal(null)}><X size={17} /></button></div>
         {modal === "editBorrowing" ? <form onSubmit={saveBorrowingEdit}>
           <p className="page-description">{t("borrowingDueDateHelp")}</p>
-          <div className="form-grid"><FieldInput label={t("dueDate")} name="borrowing-due-date" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required type="date" /></div>
+          <div className="form-grid">
+            <DatePickerInput label={t("borrowDate")} name="borrowing-borrow-date" value={form.borrowDate || ""} onChange={(value) => setForm({ ...form, borrowDate: value })} required language={i18n.language} placeholder={t("ethiopianDatePlaceholder")} />
+            <DatePickerInput label={t("dueDate")} name="borrowing-due-date" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required language={i18n.language} placeholder={t("ethiopianDatePlaceholder")} />
+          </div>
           <div className="modal-actions"><button type="button" className="button" onClick={() => { setModal(null); setEditingBorrowing(null); }}>{t("cancel")}</button><button className="button button-primary" disabled={busy}>{t("save")}</button></div>
         </form> : modal === "account" ? <form onSubmit={savePortalAccount}>
           <p className="page-description">{t("accountPasswordHelp")}</p>
@@ -1221,7 +1247,8 @@ function App() {
               <SearchableLoanItemSelect books={availableBooks} examSheets={availableExamSheets} selected={(form.itemKeys || "").split(",").filter(Boolean)} onChange={(itemKeys) => setForm({ ...form, itemKeys: itemKeys.join(",") })} t={t} />
               <button type="button" className="button" onClick={() => startScanning("issue")}><Camera size={13} />{t("scanToIssue")}</button>
             </div>
-            <FieldInput label={t("dueDate")} name="dueDate" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required type="date" />
+            <DatePickerInput label={t("borrowDate")} name="borrowDate" value={form.borrowDate || ""} onChange={(value) => setForm({ ...form, borrowDate: value })} required language={i18n.language} placeholder={t("ethiopianDatePlaceholder")} />
+            <DatePickerInput label={t("dueDate")} name="dueDate" value={form.dueDate || ""} onChange={(value) => setForm({ ...form, dueDate: value })} required language={i18n.language} placeholder={t("ethiopianDatePlaceholder")} />
           </div>
           <div className="modal-actions"><button type="button" className="button" onClick={() => setModal(null)}>{t("cancel")}</button><button className="button button-primary" disabled={busy}>{t("issueBooks")}</button></div>
         </form> : modal === "field" ? <form onSubmit={addCustomField}>
@@ -1826,7 +1853,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   }
   const [uploadCategory, setUploadCategory] = useState("Other");
   const headers = isCirculation || isReturnPage
-    ? [["id", "id"], ["title", "title"], ["itemType", "itemType"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
+    ? [["id", "id"], ["title", "title"], ["itemType", "itemType"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["borrowDate", "borrowDate"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
       ? [["memberCode", "id"], ["name", "name"], ["gender", "gender"], ["email", "email"], ["phone", "phone"], [page === "students" ? "grade" : "department", page === "students" ? "grade" : "department"], ["status", "status"]]
       : isInventory
@@ -1881,7 +1908,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
             <div className="panel-title">{t("activeLoansForBorrower")}</div>
             {patronLoansLoading ? <div className="loading-state">{t("loading")}</div> : patronLoans.length ? <div className="identified-loan-list">
               {patronLoans.map((loan) => <div className="identified-loan" key={toText(loan.loanItemId || loan.id)}>
-                <div><small>{t("id")}: {toText(loan.loanItemId || loan.id)}</small><strong>{toText(loan.title)}</strong><small>{t("dueDate")}: {toText(loan.dueDate).slice(0, 10)} · <Status value={toText(loan.status)} t={t} /></small></div>
+                <div><small>{t("id")}: {toText(loan.loanItemId || loan.id)}</small><strong>{toText(loan.title)}</strong><small>{t("borrowDate")}: {formatEthiopianDate(toText(loan.borrowDate) || "2026-09-15", i18n.language)} · {t("dueDate")}: {formatEthiopianDate(toText(loan.dueDate), i18n.language)} · <Status value={toText(loan.status)} t={t} /></small></div>
                 <button className="button" disabled={busy} onClick={async () => { await onReturn(loan); }}><RotateCcw size={12} />{t("returnBook")}</button>
               </div>)}
             </div> : <div className="empty-state borrower-empty">{t("noActiveLoansForBorrower")}</div>}
@@ -1932,7 +1959,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "dueDate" || key === "createdAt" ? toText(record[key]).slice(0, 10) : toText(record[key]) || "—"}</td>)}
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "borrowDate" ? formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language) : key === "dueDate" || key === "createdAt" ? formatEthiopianDate(toText(record[key]), i18n.language) : toText(record[key]) || "—"}</td>)}
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <button className="row-action" title={t("openFile")} aria-label={t("openFile")} onClick={() => onPreview({ ...record, mediaType: "PDF" })}><ExternalLink size={14} /></button>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>

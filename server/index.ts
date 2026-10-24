@@ -735,16 +735,16 @@ app.put("/api/loans/items/:id", requireStaff, asyncRoute(async (req, res) => {
     if (!item) throw new ApiError(404, "Borrowing record not found.");
     return transaction.loan.update({
       where: { id: item.loanId },
-      data: { ...(parsedBorrowDate ? { borrowDate: parsedBorrowDate } : {}), dueDate: parsedDueDate },
+      data: { borrowDate: parsedBorrowDate ?? LEGACY_BORROW_DATE, dueDate: parsedDueDate },
       select: { id: true, borrowDate: true, dueDate: true },
     });
   });
   await audit(req, "UPDATE", "LOAN_ITEM", req.params.id, {
     loanId: loan.id,
-    ...(parsedBorrowDate ? { borrowDate: loan.borrowDate.toISOString() } : {}),
+    borrowDate: (loan.borrowDate ?? LEGACY_BORROW_DATE).toISOString(),
     dueDate: loan.dueDate.toISOString(),
   });
-  res.json({ borrowDate: loan.borrowDate.toISOString(), dueDate: loan.dueDate.toISOString() });
+  res.json({ borrowDate: (loan.borrowDate ?? LEGACY_BORROW_DATE).toISOString(), dueDate: loan.dueDate.toISOString() });
 }));
 
 const clearResolvedBorrowings = asyncRoute(async (req, res) => {
@@ -1044,7 +1044,8 @@ app.post("/api/loans", asyncRoute(async (req, res) => {
     : Array.isArray(bookIds) ? bookIds.map((id: unknown) => ({ type: "BOOK", id })) : [];
   const earliestDueDate = new Date();
   earliestDueDate.setUTCHours(0, 0, 0, 0);
-  if (typeof patronId !== "string" || !patronId || requestedItems.length < 1 || requestedItems.length > 20 || typeof dueDate !== "string" || !dueDate || Number.isNaN(Date.parse(dueDate)) || Date.parse(dueDate) < earliestDueDate.getTime()) {
+  const parsedDueDate = parseDateOnly(dueDate);
+  if (typeof patronId !== "string" || !patronId || requestedItems.length < 1 || requestedItems.length > 20 || !parsedDueDate || parsedDueDate < earliestDueDate) {
     res.status(400).json({ error: "A borrower, 1–20 items, and a valid due date are required." });
     return;
   }
@@ -1078,7 +1079,7 @@ app.post("/api/loans", asyncRoute(async (req, res) => {
     }
     return transaction.loan.create({
       data: {
-        patronId, borrowerType: patron.type, borrowDate: parsedBorrowDate, dueDate: new Date(dueDate),
+        patronId, borrowerType: patron.type, borrowDate: parsedBorrowDate, dueDate: parsedDueDate,
         loanItems: { create: requestedItems.map((item) => item.type === "BOOK" ? { bookId: item.id as string } : { examSheetId: item.id as string }) },
       }, include: { loanItems: true },
     });
@@ -1660,14 +1661,28 @@ class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof ApiError) { res.status(error.status).json({ error: error.message }); return; }
   if (error instanceof multer.MulterError) { res.status(400).json({ error: error.code === "LIMIT_FILE_SIZE" ? "File exceeds the 50 MB upload limit." : error.message }); return; }
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2002") { res.status(409).json({ error: "A record with this unique value already exists." }); return; }
     if (error.code === "P2025") { res.status(404).json({ error: "Record not found." }); return; }
+    if (error.code === "P2022") {
+      console.error(`Database schema is behind the application (${req.method} ${req.path}).`, error);
+      res.status(503).json({ error: "The database schema is not up to date. Apply pending database migrations and try again." });
+      return;
+    }
+    if (error.code === "P2034") {
+      res.status(409).json({ error: "The record changed during this operation. Reload and try again." });
+      return;
+    }
   }
-  console.error(error);
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    console.error(`Database is unavailable (${req.method} ${req.path}).`, error);
+    res.status(503).json({ error: "The database is currently unavailable. Please try again shortly." });
+    return;
+  }
+  console.error(`API request failed (${req.method} ${req.path}).`, error);
   res.status(500).json({ error: "An unexpected server error occurred." });
 });
 

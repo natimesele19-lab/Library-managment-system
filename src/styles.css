@@ -162,11 +162,13 @@ button { cursor: pointer; }
 .field label { color: #66726f; font-size: 10px; font-weight: 600; }
 .field input,.field select { border: 1px solid #e4e9e7; border-radius: 6px; padding: 10px; outline: 0; color: #34413b; background: white; font-size: 11px; }
 .field input:focus,.field select:focus { border-color: #77a18c; box-shadow: 0 0 0 2px #e8f1ec; }
-.ethiopian-date-field { position: relative; }
-.ethiopian-date-control { display: flex; }
+.ethiopian-date-field { position: relative; z-index: 1; }
+.ethiopian-date-control { display: flex; position: relative; z-index: 2; }
 .ethiopian-date-control input { width: 100%; min-width: 0; border-radius: 6px 0 0 6px; }
 .ethiopian-date-trigger { display: grid; place-items: center; width: 38px; flex: 0 0 38px; border: 1px solid #e4e9e7; border-left: 0; border-radius: 0 6px 6px 0; color: #52645a; background: #f8faf9; }
-.ethiopian-date-picker { position: absolute; z-index: 12; top: calc(100% + 5px); left: 0; width: min(310px,calc(100vw - 44px)); padding: 10px; border: 1px solid #e2e9e5; border-radius: 8px; background: #fff; box-shadow: 0 12px 30px rgba(31,49,39,.16); }
+.ethiopian-date-picker { position: absolute; z-index: 40; top: calc(100% + 5px); left: 0; right: auto; width: min(280px, calc(100vw - 120px)); max-width: 280px; padding: 10px; border: 1px solid #e2e9e5; border-radius: 8px; background: #fff; box-shadow: 0 12px 30px rgba(31,49,39,.16); }
+.ethiopian-date-field:nth-child(even) > .ethiopian-date-picker,
+.ethiopian-date-field:nth-child(even) .ethiopian-date-picker { left: auto; right: 0; }
 .ethiopian-date-picker-head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
 .ethiopian-date-picker-head select { min-width: 0; flex: 1; padding: 6px; border: 1px solid #e4e9e7; border-radius: 5px; color: #34413b; background: #fff; font-size: 11px; }
 .ethiopian-date-picker-head input { width: 66px; padding: 6px; border: 1px solid #e4e9e7; border-radius: 5px; color: #34413b; background: #fff; font-size: 11px; }

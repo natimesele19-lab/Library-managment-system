@@ -455,6 +455,7 @@ function App() {
         const config = pageConfig[page];
         const params = new URLSearchParams();
         if (query.trim()) params.set("search", query.trim());
+        if (page === "books" && mediaCategoryFilter !== "ALL") params.set("category", mediaCategoryFilter);
         const url = `${config.endpoint}${config.endpoint.includes("?") ? "&" : "?"}${params.toString()}`;
         const nextRecords = await api.get<Row[]>(url);
         if (isCurrentLoad()) setRecords(nextRecords);
@@ -468,7 +469,7 @@ function App() {
     } finally {
       if (isCurrentLoad()) setLoading(false);
     }
-  }, [token, currentUser, page, query, loanStatusFilter, t]);
+  }, [token, currentUser, page, query, loanStatusFilter, mediaCategoryFilter, t]);
 
   useEffect(() => {
     const debounce = ["books", "examSheets", "students", "staff", "idCards", "inventory", "media"].includes(page) ? 250 : 0;
@@ -522,9 +523,12 @@ function App() {
       );
     }
     if (!isDataPage || page !== "books") return records;
-    if (statusFilter === "AVAILABLE") return records.filter((record) => Number(record.availableCopies ?? record.copies) > 0);
-    if (statusFilter === "BORROWED") return records.filter((record) => Number(record.availableCopies ?? 0) < Number(record.copies ?? 0));
-    return records;
+    const categoryFiltered = mediaCategoryFilter === "ALL"
+      ? records
+      : records.filter((record) => toText(record.category).trim() === mediaCategoryFilter);
+    if (statusFilter === "AVAILABLE") return categoryFiltered.filter((record) => Number(record.availableCopies ?? record.copies) > 0);
+    if (statusFilter === "BORROWED") return categoryFiltered.filter((record) => Number(record.availableCopies ?? 0) < Number(record.copies ?? 0));
+    return categoryFiltered;
   }, [records, page, isDataPage, statusFilter, mediaCategoryFilter, query]);
 
   if (!token) return <Login libraryName={librarySettings.libraryName} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onLogin={(value, account) => { setToken(value); setCurrentUser(account); }} />;
@@ -1877,13 +1881,14 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {(isCirculation || isReturnPage || page === "books") && <select aria-label={t("filter")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="ALL">{t("all")}</option>{isCirculation ? <><option value="ACTIVE">{t("activeLoans")}</option><option value="OVERDUE">{t("overdue")}</option><option value="RETURNED">{t("history")}</option></> : isReturnPage ? <><option value="CHECKED_OUT">{t("checkedOut")}</option><option value="OVERDUE">{t("overdue")}</option></> : <><option value="AVAILABLE">{t("available")}</option><option value="BORROWED">{t("borrowedStatus")}</option></>}
           </select>}
+          {(page === "books" || isMedia) && <select aria-label={t("filterByCategory")} className="select-control" value={mediaCategoryFilter} onChange={(event) => setMediaCategoryFilter(event.target.value)}>
+            <option value="ALL">{t("allCategories")}</option>
+            {(page === "media" ? mediaCategories : Array.from(new Set(records.map((record) => toText(record.category).trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right))).map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>}
           {isMedia && <>
             <select aria-label={t("filterByType")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="ALL">{t("allTypes")}</option><option value="PDF">PDF</option><option value="AUDIO">{t("audio")}</option><option value="VIDEO">{t("video")}</option>
               {[...new Set(records.map((record) => toText(record.mediaType)))].filter((type) => !["PDF", "AUDIO", "VIDEO"].includes(type)).map((type) => <option key={type} value={type}>{type}</option>)}
-            </select>
-            <select aria-label={t("filterByCategory")} className="select-control" value={mediaCategoryFilter} onChange={(event) => setMediaCategoryFilter(event.target.value)}>
-              <option value="ALL">{t("allCategories")}</option>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}
             </select>
           </>}
         </div>

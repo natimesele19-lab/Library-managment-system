@@ -340,10 +340,14 @@ app.get("/api/dashboard", requireStaff, asyncRoute(async (_req, res) => {
 
 app.get("/api/books", asyncRoute(async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
-  const where: Prisma.BookWhereInput = search ? { OR: [
-    { title: { contains: search } }, { author: { contains: search } },
-    { isbn: { contains: search } }, { category: { contains: search } },
-  ] } : {};
+  const category = typeof req.query.category === "string" ? req.query.category.trim() : "";
+  const where: Prisma.BookWhereInput = {
+    ...(search ? { OR: [
+      { title: { contains: search } }, { author: { contains: search } },
+      { isbn: { contains: search } }, { category: { contains: search } },
+    ] } : {}),
+    ...(category ? { category: { contains: category } } : {}),
+  };
   if (req.user?.role === "MEMBER") {
     const books = await prisma.book.findMany({
       where, orderBy: { title: "asc" },

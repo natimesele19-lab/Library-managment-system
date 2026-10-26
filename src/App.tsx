@@ -1723,9 +1723,18 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
   libraryName: string;
   t: (key: string) => string;
 }) {
-  const [printTarget, setPrintTarget] = useState<string | "all" | null>(null);
+  const [printTarget, setPrintTarget] = useState<string | "all" | "selected" | null>(null);
+  const [memberTypeFilter, setMemberTypeFilter] = useState<"ALL" | IDCardPatron["type"]>("ALL");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const patrons = records.filter((record): record is Row & { type: IDCardPatron["type"] } =>
     record.type === "STUDENT" || record.type === "TEACHER");
+  const visiblePatrons = patrons.filter((record) => memberTypeFilter === "ALL" || record.type === memberTypeFilter);
+  const allVisibleSelected = visiblePatrons.length > 0 && visiblePatrons.every((record) => selectedIds.includes(record.id));
+
+  useEffect(() => {
+    const availableIds = new Set(patrons.map((record) => record.id));
+    setSelectedIds((current) => current.filter((id) => availableIds.has(id)));
+  }, [records]);
 
   useEffect(() => {
     if (!printTarget) return;
@@ -1738,7 +1747,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
     };
   }, [printTarget]);
 
-  return <div className="id-cards-print-root" data-print-all={printTarget === "all" ? "true" : undefined}>
+  return <div className="id-cards-print-root">
     <div className="page-heading id-cards-toolbar">
       <div>
         <div className="eyebrow">{libraryName} · {t("adminSettings")}</div>
@@ -1747,12 +1756,30 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
       </div>
       <div className="heading-actions">
         <label className="table-search"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-        <button className="button button-primary" disabled={loading || patrons.length === 0} onClick={() => setPrintTarget("all")}>
+        <select aria-label={t("filterByMemberType")} className="select-control" value={memberTypeFilter} onChange={(event) => {
+          const value = event.target.value;
+          if (value === "ALL" || value === "STUDENT" || value === "TEACHER") setMemberTypeFilter(value);
+        }}>
+          <option value="ALL">{t("all")}</option><option value="STUDENT">{t("studentsOnly")}</option><option value="TEACHER">{t("teachersOnly")}</option>
+        </select>
+        <button className="button button-primary" disabled={loading || visiblePatrons.length === 0} onClick={() => setPrintTarget("all")}>
           <FileText size={13} />{t("printAllIdCards")}
         </button>
       </div>
     </div>
-    {loading ? <div className="panel loading-state">{t("loading")}</div> : patrons.length ? <div className="id-card-list">
+    <div className="id-card-selection-toolbar">
+      <button type="button" className="button" disabled={visiblePatrons.length === 0} onClick={() => {
+        setSelectedIds((current) => allVisibleSelected
+          ? []
+          : [...new Set([...current, ...visiblePatrons.map((record) => record.id)])]);
+      }}>{t(allVisibleSelected ? "deselectAll" : "selectAll")}</button>
+      <button type="button" className="button button-primary" disabled={selectedIds.length === 0} onClick={() => setPrintTarget("selected")}>
+        <FileText size={13} />{t("printSelectedIds")} ({selectedIds.length})
+      </button>
+    </div>
+    {loading ? <div className="panel loading-state">{t("loading")}</div> : patrons.length ? <>
+      {visiblePatrons.length === 0 && <div className="panel empty-state">{t("noMatchingIdCards")}</div>}
+      <div className="id-card-list">
       {patrons.map((record) => {
         const patron: IDCardPatron = {
           name: toText(record.name),
@@ -1764,14 +1791,27 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
           grade: toText(record.grade) || null,
           department: toText(record.department) || null,
         };
-        return <article className="id-card-print-item" data-printing={printTarget === "all" || printTarget === record.id ? "true" : undefined} key={record.id}>
+        const isTypeVisible = memberTypeFilter === "ALL" || record.type === memberTypeFilter;
+        const isPrinting = printTarget === record.id ||
+          (printTarget === "all" && isTypeVisible) ||
+          (printTarget === "selected" && selectedIds.includes(record.id));
+        return <article className="id-card-print-item" data-filtered={isTypeVisible ? "true" : "false"} data-printing={isPrinting ? "true" : undefined} key={record.id}>
           <IDCard patron={patron} libraryName={libraryName} t={t} />
           <div className="id-card-item-actions">
+            <label className="id-card-select">
+              <input type="checkbox" aria-label={`${t("selectIdCard")} ${patron.name}`} checked={selectedIds.includes(record.id)} onChange={() => {
+                setSelectedIds((current) => current.includes(record.id)
+                  ? current.filter((id) => id !== record.id)
+                  : [...current, record.id]);
+              }} />
+              {t("selectIdCard")}
+            </label>
             <button className="button" onClick={() => setPrintTarget(record.id)}><FileText size={13} />{t("printIdCard")}</button>
           </div>
         </article>;
       })}
-    </div> : <div className="panel empty-state">{t(query.trim() ? "noRecords" : "noIdCards")}</div>}
+      </div>
+    </> : <div className="panel empty-state">{t(query.trim() ? "noRecords" : "noIdCards")}</div>}
   </div>;
 }
 

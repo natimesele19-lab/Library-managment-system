@@ -1347,6 +1347,8 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const [reservations, setReservations] = useState<PortalReservation[]>([]);
   const [media, setMedia] = useState<Row[]>([]);
   const [query, setQuery] = useState("");
+  const [bookCategories, setBookCategories] = useState<string[]>([]);
+  const [bookCategoryFilter, setBookCategoryFilter] = useState("ALL");
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<"ALL" | "BOOK" | "EXAM_SHEET">("ALL");
   const [portalViewMode, setPortalViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
@@ -1363,8 +1365,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
       const params = new URLSearchParams();
       if (query.trim()) params.set("search", query.trim());
       const search = params.toString();
+      const booksParams = new URLSearchParams(params);
+      if (bookCategoryFilter !== "ALL") booksParams.set("category", bookCategoryFilter);
       void Promise.all([
-        api.get<Row[]>(`/books?${search}`),
+        api.get<Row[]>(`/books?${booksParams.toString()}`),
         api.get<Row[]>(`/exam-sheets?${search}`),
         api.get<Row[]>(`/media?${search}`),
       ]).then(([bookResults, examSheetResults, mediaResults]) => {
@@ -1380,7 +1384,17 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
       });
     }, 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [query, t]);
+  }, [query, bookCategoryFilter, t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.get<string[]>("/books/categories").then((categories) => {
+      if (!cancelled) setBookCategories(categories);
+    }).catch((cause: unknown) => {
+      if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline"));
+    });
+    return () => { cancelled = true; };
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1413,6 +1427,9 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
   const filteredCatalogItems = catalogTypeFilter === "ALL"
     ? catalogItems
     : catalogItems.filter((item) => item.catalogType === catalogTypeFilter);
+  const categoryFilteredCatalogItems = bookCategoryFilter === "ALL"
+    ? filteredCatalogItems
+    : filteredCatalogItems.filter((item) => item.catalogType === "BOOK" && toText(item.category).trim() === bookCategoryFilter);
   const allDigitalMediaItems: Row[] = [
     ...books.filter((book) => secureFileUrl(book.filePath)).map((book): Row => ({
       ...book, mediaType: "PDF", category: toText(book.category) || t("book"), key: `book:${book.id}`,
@@ -1517,8 +1534,10 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
           <section className="panel portal-search-panel"><label className="table-search"><Search size={14} /><input aria-label={t("searchCatalog")} placeholder={t("searchCatalog")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label={t("filterCatalogType")} className="select-control" value={catalogTypeFilter} onChange={(event) => {
             const value = event.target.value;
             if (value === "ALL" || value === "BOOK" || value === "EXAM_SHEET") setCatalogTypeFilter(value);
-          }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select><span>{filteredCatalogItems.length} {t("catalogItems").toLowerCase()}</span><ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} /></section>
-          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : filteredCatalogItems.length ? <div className={`portal-book-grid ${portalViewMode === "list" ? "is-list" : ""}`}>{filteredCatalogItems.map((item) => {
+          }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select><select aria-label={t("filterByCategory")} className="select-control" value={bookCategoryFilter} onChange={(event) => setBookCategoryFilter(event.target.value)}>
+            <option value="ALL">{t("allCategories")}</option>{bookCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select><span>{categoryFilteredCatalogItems.length} {t("catalogItems").toLowerCase()}</span><ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} /></section>
+          {loading.catalog ? <div className="loading-state">{t("loading")}</div> : categoryFilteredCatalogItems.length ? <div className={`portal-book-grid ${portalViewMode === "list" ? "is-list" : ""}`}>{categoryFilteredCatalogItems.map((item) => {
             const isBook = item.catalogType === "BOOK";
             const activeRequest = activeReservations.find((reservation) =>
               isBook ? reservation.bookId === item.id : reservation.examSheetId === item.id);

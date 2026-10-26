@@ -139,7 +139,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 app.use("/api", authenticate, (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.user?.role !== "MEMBER") { next(); return; }
   const memberRead = req.method === "GET" && (
-    ["/books", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
+    ["/books", "/books/categories", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
     /^\/(books|exam-sheets)\/[^/]+\/file$/.test(req.path) ||
     /^\/media\/[^/]+\/file$/.test(req.path)
   );
@@ -357,6 +357,13 @@ app.get("/api/books", asyncRoute(async (req, res) => {
     return;
   }
   res.json(await prisma.book.findMany({ where, orderBy: { title: "asc" } }));
+}));
+
+app.get("/api/books/categories", asyncRoute(async (_req, res) => {
+  const groups = await prisma.book.groupBy({ by: ["category"] });
+  const categories = [...new Set(groups.flatMap(({ category }) => category?.trim() ? [category.trim()] : []))]
+    .sort((left, right) => left.localeCompare(right));
+  res.json(categories);
 }));
 
 app.post("/api/books", requireStaff, asyncRoute(async (req, res) => {

@@ -75,6 +75,7 @@ app.use(cors({
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
 app.use("/api/admin/change-password", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/platform/profile", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/api/public", (req: Request, res: Response, next: NextFunction) => {
@@ -139,6 +140,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
     : await prisma.user.findMany({
       where: { OR: [
         { email: normalizedEmail },
+        { username: normalizedEmail },
         { patron: { is: { phone: loginIdentifier } } },
       ] },
       include: { patron: { select: { id: true, name: true, type: true, active: true } } },
@@ -175,7 +177,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   if (!secret || secret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters.");
   const token = jwt.sign({ role: user.role }, secret, { subject: user.id, expiresIn: "8h", issuer: "library-management" });
   res.json({ token, user: {
-    id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role,
+    id: user.id, name: user.patron?.name || user.name, username: user.username || undefined, email: user.email, role: user.role,
     tenantId: user.tenantId, patronId: user.patronId || undefined, patronType: user.patron?.type,
   } });
 }));
@@ -205,7 +207,7 @@ app.get("/api/auth/me", asyncRoute(async (req, res) => {
     where: { id: req.user!.id }, include: { patron: { select: { name: true, type: true } } },
   });
   if (!user) { res.status(401).json({ error: "Account not found." }); return; }
-  res.json({ id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role, tenantId: user.tenantId, patronId: user.patronId || undefined, patronType: user.patron?.type });
+  res.json({ id: user.id, name: user.patron?.name || user.name, username: user.username || undefined, email: user.email, role: user.role, tenantId: user.tenantId, patronId: user.patronId || undefined, patronType: user.patron?.type });
 }));
 
 const changeAdminPassword = asyncRoute(async (req, res) => {
@@ -252,6 +254,69 @@ app.route("/api/admin/change-password")
   .post(requireAdmin, changeAdminPassword)
   .put(requireAdmin, changeAdminPassword);
 
+app.get("/api/platform/profile", requirePlatformAdmin, asyncRoute(async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { id: true, username: true, email: true, role: true },
+  });
+  if (!user || user.role !== "SUPER_ADMIN") { res.status(404).json({ error: "Platform owner account not found." }); return; }
+  res.json({ id: user.id, username: user.username || "", email: user.email });
+}));
+
+app.put("/api/platform/profile", requirePlatformAdmin, asyncRoute(async (req, res) => {
+  const body = req.body as { username?: unknown; email?: unknown; currentPassword?: unknown };
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      typeof body.username !== "string" || !/^[A-Za-z0-9._-]{3,32}$/.test(body.username.trim()) ||
+      typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim()) || body.email.trim().length > 254 ||
+      typeof body.currentPassword !== "string" || !body.currentPassword) {
+    res.status(400).json({ error: "Enter a valid username, email address, and current password." });
+    return;
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true, name: true, email: true, passwordHash: true, role: true } });
+  if (!user || user.role !== "SUPER_ADMIN") { res.status(404).json({ error: "Platform owner account not found." }); return; }
+  if (!(await bcrypt.compare(body.currentPassword, user.passwordHash))) {
+    res.status(400).json({ error: "Current password is incorrect." });
+    return;
+  }
+  const username = body.username.trim().toLowerCase();
+  const email = body.email.trim().toLowerCase();
+  try {
+    const updated = await prisma.user.update({ where: { id: user.id }, data: { username, email }, select: { id: true, username: true, email: true } });
+    await audit(req, "UPDATE", "PLATFORM_OWNER_PROFILE", user.id);
+    res.json({ id: updated.id, username: updated.username, email: updated.email });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      res.status(409).json({ error: "That username or email address is already in use." });
+      return;
+    }
+    throw error;
+  }
+}));
+
+app.put("/api/platform/profile/password", requirePlatformAdmin, asyncRoute(async (req, res) => {
+  const body = req.body as { currentPassword?: unknown; newPassword?: unknown };
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      typeof body.currentPassword !== "string" || !body.currentPassword ||
+      typeof body.newPassword !== "string" || body.newPassword.length < 12 || Buffer.byteLength(body.newPassword, "utf8") > 72) {
+    res.status(400).json({ error: "Enter your current password and a new password of at least 12 characters and no more than 72 UTF-8 bytes." });
+    return;
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true, passwordHash: true, role: true } });
+  if (!user || user.role !== "SUPER_ADMIN") { res.status(404).json({ error: "Platform owner account not found." }); return; }
+  if (!(await bcrypt.compare(body.currentPassword, user.passwordHash))) {
+    res.status(400).json({ error: "Current password is incorrect." });
+    return;
+  }
+  if (body.currentPassword === body.newPassword) {
+    res.status(400).json({ error: "The new password must differ from the current password." });
+    return;
+  }
+  const passwordHash = await bcrypt.hash(body.newPassword, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  await audit(req, "UPDATE", "PLATFORM_OWNER_PASSWORD", user.id);
+  res.json({ message: "Password updated successfully." });
+}));
+
 const getAdminSettings = settingsRoute(async (_req, res) => {
   const settings = await prisma.librarySetting.findFirst();
   res.json({
@@ -281,9 +346,10 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     res.status(400).json({ error: "A valid library settings object is required." });
     return;
   }
+  const isPlatformAdmin = req.user?.role === "SUPER_ADMIN";
   const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
-  if (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80 ||
-      typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80) {
+  if (isPlatformAdmin && (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80 ||
+      typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80)) {
     res.status(400).json({ error: "Library name and app title must each contain 1–80 characters." });
     return;
   }
@@ -331,7 +397,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   const landingSettings = {} as typeof landingDefaults;
   for (const key of Object.keys(landingDefaults) as (keyof typeof landingDefaults)[]) {
     const requested = req.body[key];
-    const value = requested === undefined ? current?.[key] ?? landingDefaults[key] : requested;
+    const value = !isPlatformAdmin || requested === undefined ? current?.[key] ?? landingDefaults[key] : requested;
     if (typeof value !== "string" || value.length > settingLimits[key]) {
       res.status(400).json({ error: `${key} must be a string of at most ${settingLimits[key]} characters.` });
       return;
@@ -352,8 +418,18 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   }
   const englishText = validateTranslationMap(req.body.englishText);
   const amharicText = validateTranslationMap(req.body.amharicText);
+  if (!isPlatformAdmin) {
+    const savedEnglishText = current ? JSON.parse(current.englishText) as Record<string, string> : {};
+    const savedAmharicText = current ? JSON.parse(current.amharicText) as Record<string, string> : {};
+    if (typeof savedEnglishText.footerNotice === "string") englishText.footerNotice = savedEnglishText.footerNotice;
+    else delete englishText.footerNotice;
+    if (typeof savedAmharicText.footerNotice === "string") amharicText.footerNotice = savedAmharicText.footerNotice;
+    else delete amharicText.footerNotice;
+  }
   const data = {
-    libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage,
+    libraryName: isPlatformAdmin ? (libraryName as string).trim() : current?.libraryName ?? "Libra",
+    appTitle: isPlatformAdmin ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
+    defaultLanguage,
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),
     amharicText: JSON.stringify(amharicText), ...landingSettings,
   };

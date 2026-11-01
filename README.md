@@ -30,7 +30,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Multi-book circulation transactions and per-book return processing with configurable daily late fees (`FINE_PER_DAY`, default 5 ETB).
 - Dedicated active-returns workspace with borrower search, single returns, and atomic batch returns; each return updates availability and calculates late fees.
 - Admin-configurable library name, browser app title, and English/Amharic interface text, persisted in PostgreSQL.
-- Public, animated landing page with an up-to-date catalog preview; administrators can manage its logo, copy, contact details, announcement, and copyright from Settings.
+- Public, animated landing page with an up-to-date catalog preview; only the Super Admin can manage its logo, copy, contact details, announcement, and copyright from the platform dashboard.
 - Persistent global light/dark theme switch and animated page transitions.
 - Admin-managed additional fields for books, patrons, and inventory, stored as serialized JSON text separately from typed core fields; fines and asset values use PostgreSQL double-precision fields.
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
@@ -53,8 +53,10 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | GET | `/api/auth/me` | Read the signed-in account |
 | GET | `/api/public/settings` | Read public library branding and interface text |
 | GET | `/api/public/catalog` | Read a small public preview of recently updated books |
-| GET, POST, PUT | `/api/admin/settings` | Read or update branding, landing-page content, default language, footer notices, and English/Amharic interface text (admin only) |
+| GET, POST, PUT | `/api/admin/settings` | Read or update operational settings and English/Amharic interface text (admin only; platform identity, landing-page content, and footer notices are Super Admin only) |
 | GET, PUT | `/api/platform/settings` | Read or update global platform branding and landing-page settings (Super Admin only) |
+| GET, PUT | `/api/platform/profile` | Read or update the Super Admin username and email; profile changes require the current password |
+| PUT | `/api/platform/profile/password` | Verify the current password and set a new Super Admin password |
 | GET | `/api/platform/overview` | Aggregate school, book, and active-member counts (Super Admin only) |
 | GET, POST | `/api/platform/tenants` | List schools or create a school with its first administrator (Super Admin only) |
 | PUT | `/api/platform/tenants/:id` | Update a school profile or activate/suspend it (Super Admin only) |

@@ -719,6 +719,12 @@ function App() {
   }, [token, currentUser]);
 
   useEffect(() => {
+    if (currentUser?.role !== "SUPER_ADMIN") return;
+    setApiTenantId(null);
+    setActiveTenantId(null);
+  }, [token, currentUser?.role]);
+
+  useEffect(() => {
     if (!token || currentUser?.role !== "SUPER_ADMIN" || activeTenantId) return;
     let cancelled = false;
     void api.get<LibrarySettings>("/platform/settings").then((settings) => {

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
@@ -17,12 +18,15 @@ async function main() {
   if (!email || !password || password.length < 12) {
     throw new Error("Set LIBRARY_ADMIN_EMAIL and LIBRARY_ADMIN_PASSWORD (at least 12 characters) before seeding.");
   }
-  const platformEmail = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase().trim();
+  const platformEmail = (process.env.PLATFORM_OWNER_EMAIL || "admin@library.com").toLowerCase().trim();
   const platformPassword = process.env.PLATFORM_OWNER_PASSWORD;
-  if (Boolean(platformEmail) !== Boolean(platformPassword) || (platformPassword && platformPassword.length < 12)) {
-    throw new Error("Set both PLATFORM_OWNER_EMAIL and PLATFORM_OWNER_PASSWORD (at least 12 characters) to provision the platform owner.");
+  if (platformPassword && platformPassword.length < 12) {
+    throw new Error("PLATFORM_OWNER_PASSWORD must contain at least 12 characters.");
   }
-  if (platformEmail && platformEmail === email.toLowerCase().trim()) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(platformEmail)) {
+    throw new Error("PLATFORM_OWNER_EMAIL must be a valid email address.");
+  }
+  if (platformEmail === email.toLowerCase().trim()) {
     throw new Error("The platform owner email must differ from the school administrator email.");
   }
   await prisma.tenant.upsert({
@@ -42,9 +46,9 @@ async function main() {
     create: { name: "Library Administrator", email: email.toLowerCase().trim(), passwordHash, role: "ADMIN", tenantId: "default" },
   });
   console.log(`Admin account is ready for ${email.toLowerCase().trim()}.`);
-  if (platformEmail && platformPassword) {
+  const platformOwner = await prisma.user.findFirst({ where: { email: platformEmail, tenantId: null } });
+  if (platformPassword) {
     const platformPasswordHash = await bcrypt.hash(platformPassword, 12);
-    const platformOwner = await prisma.user.findFirst({ where: { email: platformEmail, tenantId: null } });
     if (platformOwner) {
       await prisma.user.update({
         where: { id: platformOwner.id },
@@ -56,6 +60,21 @@ async function main() {
       });
     }
     console.log(`Platform owner account is ready for ${platformEmail}.`);
+  } else if (platformOwner) {
+    if (platformOwner.role !== "SUPER_ADMIN") {
+      throw new Error(`Cannot provision the platform owner: ${platformEmail} is already assigned to a non-platform account.`);
+    }
+    console.log(`Platform owner account already exists for ${platformEmail}; its password was not changed.`);
+  } else {
+    const generatedPassword = randomBytes(32).toString("base64url");
+    const generatedPasswordHash = await bcrypt.hash(generatedPassword, 12);
+    await prisma.user.create({
+      data: {
+        name: "Platform Owner", email: platformEmail, passwordHash: generatedPasswordHash,
+        role: "SUPER_ADMIN", active: true, tenantId: null,
+      },
+    });
+    console.log(`\nNew Super Admin account created.\nEmail: ${platformEmail}\nTemporary password (shown only once): ${generatedPassword}\nStore it securely and change it after signing in.\n`);
   }
 }
 

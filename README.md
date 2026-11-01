@@ -12,12 +12,12 @@ A bilingual (English / Amharic) library management application built with React,
 
 1. Install dependencies: `npm install`
 2. Create a PostgreSQL database named `library_management` (or choose another name and update `DATABASE_URL`).
-3. Copy `.env.example` to `.env`, then set the PostgreSQL connection string, a random `JWT_SECRET` of at least 32 characters, and the administrator email and password. To bootstrap a platform owner, also set both `PLATFORM_OWNER_EMAIL` and `PLATFORM_OWNER_PASSWORD` (at least 12 characters).
+3. Copy `.env.example` to `.env`, then set the PostgreSQL connection string, a random `JWT_SECRET` of at least 32 characters, and the school administrator email and password. The seed provisions a Super Admin as `admin@library.com` if platform-owner credentials are not configured; it generates a strong one-time password and prints it only when creating the account. Optionally set `PLATFORM_OWNER_EMAIL` and `PLATFORM_OWNER_PASSWORD` to provide explicit platform-owner credentials.
 4. Generate the Prisma client and synchronize the PostgreSQL schema: `npm run db:generate` and `npm run db:push`.
 5. Create or update the administrator account: `npm run seed` (or `npm run db:seed`).
 6. Start the web app and API: `npm run dev`.
 
-The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The school administrator signs in with the credentials configured in `.env`; a configured platform owner can manage schools and global branding from the Super Admin dashboard. The local frontend API URL is set in the ignored `.env.local`; `CLIENT_ORIGIN` can contain a comma-separated list of allowed frontend origins. Do not use development credentials in production.
+The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The school administrator signs in with the credentials configured in `.env`; the platform owner can manage schools and global branding from the Super Admin dashboard. Save the generated platform-owner password securely, avoid retaining it in shared/deployed logs, and change it after signing in. The local frontend API URL is set in the ignored `.env.local`; `CLIENT_ORIGIN` can contain a comma-separated list of allowed frontend origins. Do not use development credentials in production.
 
 ## Features
 

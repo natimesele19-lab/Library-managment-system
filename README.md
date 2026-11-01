@@ -12,12 +12,12 @@ A bilingual (English / Amharic) library management application built with React,
 
 1. Install dependencies: `npm install`
 2. Create a PostgreSQL database named `library_management` (or choose another name and update `DATABASE_URL`).
-3. Copy `.env.example` to `.env`, then set the PostgreSQL connection string, a random `JWT_SECRET` of at least 32 characters, and the administrator email and password.
+3. Copy `.env.example` to `.env`, then set the PostgreSQL connection string, a random `JWT_SECRET` of at least 32 characters, and the administrator email and password. To bootstrap a platform owner, also set both `PLATFORM_OWNER_EMAIL` and `PLATFORM_OWNER_PASSWORD` (at least 12 characters).
 4. Generate the Prisma client and synchronize the PostgreSQL schema: `npm run db:generate` and `npm run db:push`.
 5. Create or update the administrator account: `npm run seed` (or `npm run db:seed`).
 6. Start the web app and API: `npm run dev`.
 
-The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The administrator signs in with the credentials configured in `.env`. The local frontend API URL is set in the ignored `.env.local`; `CLIENT_ORIGIN` can contain a comma-separated list of allowed frontend origins. Do not use development credentials in production.
+The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4000`. The school administrator signs in with the credentials configured in `.env`; a configured platform owner can manage schools and global branding from the Super Admin dashboard. The local frontend API URL is set in the ignored `.env.local`; `CLIENT_ORIGIN` can contain a comma-separated list of allowed frontend origins. Do not use development credentials in production.
 
 ## Features
 
@@ -30,6 +30,7 @@ The web app runs at `http://localhost:5173`; the API runs at `http://localhost:4
 - Multi-book circulation transactions and per-book return processing with configurable daily late fees (`FINE_PER_DAY`, default 5 ETB).
 - Dedicated active-returns workspace with borrower search, single returns, and atomic batch returns; each return updates availability and calculates late fees.
 - Admin-configurable library name, browser app title, and English/Amharic interface text, persisted in PostgreSQL.
+- Public, animated landing page with an up-to-date catalog preview; administrators can manage its logo, copy, contact details, announcement, and copyright from Settings.
 - Persistent global light/dark theme switch and animated page transitions.
 - Admin-managed additional fields for books, patrons, and inventory, stored as serialized JSON text separately from typed core fields; fines and asset values use PostgreSQL double-precision fields.
 - Fine calculation and payment collection; daily circulation statistics refresh automatically while the dashboard is open.
@@ -51,7 +52,12 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 | POST | `/api/auth/login` | Sign in and receive an 8-hour access token |
 | GET | `/api/auth/me` | Read the signed-in account |
 | GET | `/api/public/settings` | Read public library branding and interface text |
-| GET, POST, PUT | `/api/admin/settings` | Read or update branding, default language, footer notices, and English/Amharic interface text (admin only) |
+| GET | `/api/public/catalog` | Read a small public preview of recently updated books |
+| GET, POST, PUT | `/api/admin/settings` | Read or update branding, landing-page content, default language, footer notices, and English/Amharic interface text (admin only) |
+| GET, PUT | `/api/platform/settings` | Read or update global platform branding and landing-page settings (Super Admin only) |
+| GET | `/api/platform/overview` | Aggregate school, book, and active-member counts (Super Admin only) |
+| GET, POST | `/api/platform/tenants` | List schools or create a school with its first administrator (Super Admin only) |
+| PUT | `/api/platform/tenants/:id` | Update a school profile or activate/suspend it (Super Admin only) |
 | PUT | `/api/settings` | Legacy update route for library settings (admin only) |
 | POST, PUT | `/api/admin/change-password` | Verify the current password and set a new administrator password |
 | GET | `/api/dashboard` | Dashboard aggregates and circulation charts |
@@ -83,11 +89,11 @@ All endpoints below (except health and sign-in) require `Authorization: Bearer <
 
 `npm run db:reset` drops all data in the configured PostgreSQL database and recreates the schema; use it only when you intend to reset the database. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `EMAIL_FROM` in `.env` to enable daily overdue reminders; reminders are skipped with an explicit warning if SMTP is not configured. Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `.env` to enable staff Cloudinary uploads. The client accepts `VITE_API_URL` as either the deployed API origin or its `/api` root; all frontend API requests, including borrowing and reservation deletes, use this centralized base URL. Configure `CLIENT_ORIGIN`, `UPLOAD_DIR` (for legacy local media), and the database and signing secrets for the deployment environment. Back up the database and Cloudinary assets separately. The browser-only document and spreadsheet parsers are build dependencies; the production API can be installed with `npm ci --omit=dev` after building the client and server.
 
-Existing databases must apply the `MediaAsset.category`, `LibrarySetting.defaultLanguage`, `Patron.gender`, and `Loan.borrowDate` schema additions before running the updated API. For this project’s local setup, run `npm run db:generate` followed by `npm run db:push`; migration-based deployments should run `npm run db:deploy` before starting the updated API.
+The additive tenant migration creates a `default` school, assigns existing library records to it, and adds tenant-scoped uniqueness without deleting existing tables or records. It also adds the platform-owner role and tenant foreign keys. Generate the Prisma client and apply pending migrations before deploying the updated API. For a database whose migration history is already managed by Prisma, run `npm run db:generate` and `npm run db:deploy`. For a fresh local database, `npm run db:push` can synchronize the schema before seeding. If an existing database was created with `db:push` and does not have matching Prisma migration history, do not run `db:deploy` blindly; back up the database and baseline its migration history first. Never use `npm run db:reset` to upgrade or migrate an existing library database.
 
 ## Notes for production deployment
 
-For a production build, install all dependencies, configure the database URL, run `npm run db:generate`, apply the schema (`npm run db:push` for a fresh/local setup or `npm run db:deploy` for a migration-managed database), and run `npm run build`; seed the admin account before pruning development dependencies. The build emits the static client in `dist/` and the compiled API in `dist-server/`. The API can then run with production dependencies using `npm start`.
+For a production build, install all dependencies, configure the database URL, run `npm run db:generate`, apply pending migrations using the database's established migration workflow, and run `npm run build`; seed the school admin and, if configured, platform owner before pruning development dependencies. The build emits the static client in `dist/` and the compiled API in `dist-server/`. The API can then run with production dependencies using `npm start`.
 
 Use HTTPS, a managed database, private persistent file storage, and a secret manager. Restrict CORS to the deployed client origin. Back up the database and uploaded media, rotate JWT secrets, and configure monitoring and a trusted SMTP relay. Camera access only works in secure browser contexts. Student/teacher login accounts must be created by library staff; patrons sign in with their member code or email and the password provided by staff. Distribute initial passwords securely and request a password change through approved operational procedures. Patron self-service password reset/email verification, push notifications, and a dedicated camera barcode scanner peripheral are outside this starter.
 

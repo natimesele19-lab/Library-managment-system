@@ -1,23 +1,24 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen,
+  Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
   Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
-  QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
+  MapPin, Mail, Phone, Power, QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip,
   XAxis, YAxis,
 } from "recharts";
-import { api, download, request, type ApiRecord } from "./api";
+import { api, download, request, setApiTenantId, type ApiRecord } from "./api";
 import i18n from "./i18n";
 import { useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
 import { BorrowerLookup } from "./BorrowerLookup";
 import { IDCard, type IDCardPatron } from "./IDCard";
 import { ExamSheetsPage } from "./ExamSheetsPage";
+import { LandingPage } from "./LandingPage";
 import { DatePickerInput, ethiopianDateToGregorian, formatEthiopianDate, gregorianDateToEthiopian, todayEthiopianDate } from "./EthiopianDateInput";
 
 type Page = "dashboard" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
@@ -49,7 +50,12 @@ const EMPTY_STATS: Stats = {
   recentLoans: [],
 };
 type FormField = { id?: string; key: string; label: string; labelAm?: string | null; type: string; required?: boolean; entity?: string; placeholder?: string };
-type Account = { id: string; name: string; email: string; role: string; patronId?: string; patronType?: "STUDENT" | "TEACHER"; memberCode?: string };
+type Account = { id: string; name: string; email: string; role: string; tenantId?: string | null; patronId?: string; patronType?: "STUDENT" | "TEACHER"; memberCode?: string };
+type PlatformTenant = {
+  id: string; slug: string; name: string; city: string; region: string; contactEmail: string; contactPhone: string;
+  active: boolean; createdAt: string; _count?: { books: number; patrons: number; users: number };
+};
+type PlatformMetrics = { totalSchools: number; totalBooks: number; activeMembers: number };
 type PortalReservation = Row & { status: "REQUESTED" | "RESERVED" | "FULFILLED" | "CANCELLED"; book?: Row | null; examSheet?: Row | null; bookId?: string | null; examSheetId?: string | null };
 type StaffReservation = PortalReservation & { patron: Row };
 
@@ -61,6 +67,17 @@ function savedAccount(): Account | null {
     localStorage.removeItem("library-user");
     return null;
   }
+}
+
+async function uploadLibraryLogo(file: File, endpoint = "/upload"): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file for the library logo.");
+  if (file.size > 5 * 1024 * 1024) throw new Error("The logo must be 5 MB or smaller.");
+  const data = new FormData();
+  data.append("file", file);
+  const result = await request<{ secure_url: string }>(endpoint, { method: "POST", body: data });
+  const logoUrl = secureFileUrl(result.secure_url);
+  if (!logoUrl) throw new Error("The server did not return a valid secure logo URL.");
+  return logoUrl;
 }
 
 const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; section: "main" | "manage" }[] = [
@@ -193,10 +210,10 @@ const dateAfterDays = (days: number) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-function Brand({ libraryName }: { libraryName: string }) {
+function Brand({ libraryName, logoUrl = "" }: { libraryName: string; logoUrl?: string }) {
   const { t } = useTranslation();
   return <div className="brand">
-    <div className="brand-mark"><LibraryBig size={20} strokeWidth={1.8} /></div>
+    <div className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : <LibraryBig size={20} strokeWidth={1.8} />}</div>
     <div><div className="brand-name">{libraryName}</div><div className="brand-caption">{t("tagline")}</div></div>
   </div>;
 }
@@ -264,8 +281,9 @@ function InstallAppControl({ t }: { t: (key: string) => string }) {
   </div>;
 }
 
-function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
-  onLogin: (token: string, user: Account) => void; libraryName: string; darkMode: boolean; onToggleTheme: () => void;
+function Login({ onLogin, onBackToHome, libraryName, logoUrl, footerCopyright, darkMode, onToggleTheme }: {
+  onLogin: (token: string, user: Account) => void; onBackToHome: () => void; libraryName: string; logoUrl: string;
+  footerCopyright: string; darkMode: boolean; onToggleTheme: () => void;
 }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<"staff" | "member">("staff");
@@ -293,7 +311,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
   return <main className="login-wrap">
     <div className="login-layout">
       <section className="login-hero" aria-labelledby="login-hero-title">
-        <div className="login-hero-brand"><Brand libraryName={libraryName} /><span className="login-hero-badge"><span />{t("loginEyebrow")}</span></div>
+        <div className="login-hero-brand"><Brand libraryName={libraryName} logoUrl={logoUrl} /><span className="login-hero-badge"><span />{t("loginEyebrow")}</span></div>
         <div className="login-hero-copy">
           <p className="login-kicker">{t("tagline")}</p>
           <h1 id="login-hero-title">{t("loginHeroTitle")}</h1>
@@ -323,6 +341,7 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
       </section>
 
       <section className="login-form-panel" aria-labelledby="login-form-title">
+        <button type="button" className="login-back-home" onClick={onBackToHome}>← Back to Home / Landing Page</button>
         <div className="login-controls">
           <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
@@ -346,7 +365,278 @@ function Login({ onLogin, libraryName, darkMode, onToggleTheme }: {
         </form>
       </section>
     </div>
-    <footer className="login-credit">Made by Natnael Mesele</footer>
+    <footer className="login-credit">{footerCopyright}</footer>
+  </main>;
+}
+
+function PlatformAdminDashboard({ settings, onSaveSettings, onUploadLogo, onSwitchTenant, onSignOut }: {
+  settings: LibrarySettings;
+  onSaveSettings: (settings: LibrarySettings) => Promise<LibrarySettings>;
+  onUploadLogo: (file: File) => Promise<string>;
+  onSwitchTenant: (tenantId: string) => Promise<void>;
+  onSignOut: () => void;
+}) {
+  const [tenants, setTenants] = useState<PlatformTenant[]>([]);
+  const [metrics, setMetrics] = useState<PlatformMetrics>({ totalSchools: 0, totalBooks: 0, activeMembers: 0 });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [query, setQuery] = useState("");
+  const [settingsDraft, setSettingsDraft] = useState(settings);
+  const [editingTenantId, setEditingTenantId] = useState("");
+  const [tenantDraft, setTenantDraft] = useState<Partial<PlatformTenant>>({});
+  const [newSchool, setNewSchool] = useState({
+    name: "", slug: "", city: "", region: "", contactEmail: "", contactPhone: "",
+    initialAdminName: "", initialAdminEmail: "", initialAdminPassword: "",
+  });
+
+  useEffect(() => { setSettingsDraft(settings); }, [settings]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [overview, schoolList] = await Promise.all([
+        api.get<PlatformMetrics>("/platform/overview"),
+        api.get<PlatformTenant[]>("/platform/tenants"),
+      ]);
+      setMetrics(overview);
+      setTenants(schoolList);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load platform data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const visibleTenants = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return search ? tenants.filter((tenant) =>
+      [tenant.name, tenant.slug, tenant.city, tenant.region, tenant.contactEmail].some((value) => value.toLowerCase().includes(search)),
+    ) : tenants;
+  }, [tenants, query]);
+
+  function updateNewSchool(key: keyof typeof newSchool, value: string) {
+    setNewSchool((current) => ({ ...current, [key]: value }));
+  }
+
+  async function createSchool(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      await api.post("/platform/tenants", newSchool);
+      setNewSchool({
+        name: "", slug: "", city: "", region: "", contactEmail: "", contactPhone: "",
+        initialAdminName: "", initialAdminEmail: "", initialAdminPassword: "",
+      });
+      setSuccess("School and administrator account created.");
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create the school.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editTenant(tenant: PlatformTenant) {
+    setEditingTenantId(tenant.id);
+    setTenantDraft({
+      name: tenant.name, slug: tenant.slug, city: tenant.city, region: tenant.region,
+      contactEmail: tenant.contactEmail, contactPhone: tenant.contactPhone,
+    });
+  }
+
+  async function saveTenant(event: FormEvent) {
+    event.preventDefault();
+    if (!editingTenantId) return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      await api.put(`/platform/tenants/${editingTenantId}`, tenantDraft);
+      setEditingTenantId("");
+      setTenantDraft({});
+      setSuccess("School profile updated.");
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update the school.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleTenant(tenant: PlatformTenant) {
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      await api.put(`/platform/tenants/${tenant.id}`, { active: !tenant.active });
+      setSuccess(`${tenant.name} is now ${tenant.active ? "suspended" : "active"}.`);
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to change school status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const saved = await onSaveSettings(settingsDraft);
+      setSettingsDraft(saved);
+      setSuccess("Global branding and landing page settings saved.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save global settings.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const logoUrl = await onUploadLogo(file);
+      setSettingsDraft((current) => ({ ...current, logoUrl }));
+      setSuccess("Logo uploaded. Save settings to publish it.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to upload the logo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateSetting<K extends keyof LibrarySettings>(key: K, value: LibrarySettings[K]) {
+    setSettingsDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  return <main className="platform-shell">
+    <header className="platform-topbar">
+      <a className="platform-brand" href="/" aria-label="Library platform home">
+        <span className="platform-brand-mark">{settingsDraft.logoUrl ? <img src={secureFileUrl(settingsDraft.logoUrl)} alt="" /> : <Building2 size={20} />}</span>
+        <span><strong>{settingsDraft.libraryName}</strong><small>PLATFORM CONTROL</small></span>
+      </a>
+      <div className="platform-top-actions">
+        <span className="platform-owner-badge"><ShieldCheck size={14} />Platform owner</span>
+        <button type="button" className="button" onClick={onSignOut}><LogOut size={14} />Sign out</button>
+      </div>
+    </header>
+    <div className="platform-content">
+      <section className="platform-intro">
+        <div><p className="eyebrow">SUPER ADMINISTRATION</p><h1>Platform overview</h1><p>Manage schools, platform-wide branding, and public landing page content.</p></div>
+        <button type="button" className="button" onClick={() => void reload()} disabled={loading}><RotateCcw size={14} />Refresh data</button>
+      </section>
+      {(error || success) && <div className={`notice ${success && !error ? "notice-success" : ""}`} role={error ? "alert" : "status"}>{error || success}</div>}
+      <section className="platform-metrics" aria-label="Platform metrics">
+        {[
+          { label: "Registered schools", value: metrics.totalSchools, icon: Building2 },
+          { label: "Books across schools", value: metrics.totalBooks, icon: BookOpen },
+          { label: "Active members", value: metrics.activeMembers, icon: Users },
+        ].map((item) => <article className="platform-metric-card" key={item.label}>
+          <span className="platform-metric-icon"><item.icon size={18} /></span><span className="platform-metric-label">{item.label}</span>
+          <strong>{loading ? "—" : item.value.toLocaleString()}</strong>
+        </article>)}
+      </section>
+      <div className="platform-workspace-grid">
+        <div className="platform-column">
+          <section className="panel platform-panel">
+            <div className="panel-head"><div><div className="panel-title">Schools & institutions</div><div className="panel-subtitle">Create, manage, or open a school workspace.</div></div><span className="platform-count">{tenants.length} total</span></div>
+            <div className="platform-school-tools">
+              <label className="platform-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search schools" /></label>
+            </div>
+            <div className="platform-school-list">
+              {loading ? <p className="platform-empty">Loading schools…</p> : visibleTenants.length ? visibleTenants.map((tenant) => <article className="platform-school-card" key={tenant.id}>
+                <div className="platform-school-card-head">
+                  <span className={`platform-school-icon ${tenant.active ? "" : "suspended"}`}><Building2 size={17} /></span>
+                  <div className="platform-school-name"><strong>{tenant.name}</strong><span>/{tenant.slug}</span></div>
+                  <span className={`platform-status ${tenant.active ? "active" : "suspended"}`}>{tenant.active ? "Active" : "Suspended"}</span>
+                </div>
+                <div className="platform-school-details">
+                  {(tenant.city || tenant.region) && <span><MapPin size={12} />{[tenant.city, tenant.region].filter(Boolean).join(", ")}</span>}
+                  {tenant.contactEmail && <span><Mail size={12} />{tenant.contactEmail}</span>}
+                  {tenant.contactPhone && <span><Phone size={12} />{tenant.contactPhone}</span>}
+                </div>
+                <div className="platform-school-stats"><span>{tenant._count?.books ?? 0} books</span><span>{tenant._count?.patrons ?? 0} members</span></div>
+                <div className="platform-school-actions">
+                  {tenant.active && <button type="button" className="button button-primary" disabled={busy} onClick={() => void onSwitchTenant(tenant.id)}>Open workspace <span aria-hidden="true">→</span></button>}
+                  <button type="button" className="button" disabled={busy} onClick={() => editTenant(tenant)}><Pencil size={13} />Edit</button>
+                  <button type="button" className={`button ${tenant.active ? "button-danger" : ""}`} disabled={busy} onClick={() => void toggleTenant(tenant)}>
+                    <Power size={13} />{tenant.active ? "Suspend" : "Activate"}
+                  </button>
+                </div>
+              </article>) : <p className="platform-empty">{query ? "No schools match your search." : "No schools have been added yet."}</p>}
+            </div>
+            {editingTenantId && <form className="platform-form platform-edit-form" onSubmit={(event) => void saveTenant(event)}>
+              <div className="platform-form-heading"><h3>Edit school profile</h3><button type="button" className="row-action" aria-label="Cancel edit" onClick={() => setEditingTenantId("")}><X size={15} /></button></div>
+              <div className="platform-fields">
+                {([
+                  ["name", "School name"], ["slug", "URL slug"], ["city", "City"], ["region", "Region"],
+                  ["contactEmail", "Contact email"], ["contactPhone", "Contact phone"],
+                ] as const).map(([key, label]) => <label className="field" key={key}><span>{label}</span><input required={key === "name" || key === "slug"} value={String(tenantDraft[key] ?? "")} onChange={(event) => setTenantDraft((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
+              </div>
+              <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Saving…" : "Save school profile"}</button>
+            </form>}
+          </section>
+          <section className="panel platform-panel">
+            <div className="panel-head"><div><div className="panel-title">Add a school</div><div className="panel-subtitle">Create a tenant and its first school administrator.</div></div><Plus size={16} /></div>
+            <form className="platform-form" onSubmit={(event) => void createSchool(event)}>
+              <div className="platform-fields">
+                {([
+                  ["name", "School name", true], ["slug", "URL slug (optional)", false], ["city", "City", false], ["region", "Region", false],
+                  ["contactEmail", "School contact email", false], ["contactPhone", "School contact phone", false],
+                  ["initialAdminName", "Administrator name", true], ["initialAdminEmail", "Administrator email", true],
+                  ["initialAdminPassword", "Temporary password (12+ characters)", true],
+                ] as const).map(([key, label, required]) => <label className="field" key={key}><span>{label}</span>
+                  <input required={required} type={key === "initialAdminPassword" ? "password" : key.toLowerCase().includes("email") ? "email" : "text"}
+                    minLength={key === "initialAdminPassword" ? 12 : undefined}
+                    autoComplete={key === "initialAdminPassword" ? "new-password" : undefined}
+                    value={newSchool[key]} onChange={(event) => updateNewSchool(key, event.target.value)} />
+                </label>)}
+              </div>
+              <button type="submit" className="button button-primary" disabled={busy}><Plus size={14} />{busy ? "Creating…" : "Create school"}</button>
+            </form>
+          </section>
+        </div>
+
+        <section className="panel platform-panel platform-branding-panel">
+          <div className="panel-head"><div><div className="panel-title">Global branding & landing page</div><div className="panel-subtitle">Control the public platform identity and homepage content.</div></div><SlidersHorizontal size={16} /></div>
+          <form className="platform-form platform-settings-form" onSubmit={(event) => void saveSettings(event)}>
+            <label className="platform-logo-upload">
+              <span className="platform-logo-preview">{settingsDraft.logoUrl ? <img src={secureFileUrl(settingsDraft.logoUrl)} alt="Current platform logo" /> : <LibraryBig size={23} />}</span>
+              <span><strong>Platform logo</strong><small>PNG, JPG, or WebP up to 5 MB</small></span>
+              <span className="button">Upload logo</span>
+              <input type="file" accept="image/*" onChange={(event) => void uploadLogo(event)} disabled={busy} />
+            </label>
+            <div className="platform-fields">
+              {([
+                ["libraryName", "Platform name"], ["appTitle", "Application title"], ["landingTitle", "Hero title"],
+                ["heroSubtitle", "Hero subtitle"], ["aboutTitle", "About section title"], ["featuresTitle", "Features section title"],
+                ["catalogTitle", "Catalog section title"], ["contactTitle", "Contact section title"], ["contactPhone", "Contact phone"],
+                ["contactEmail", "Contact email"], ["footerCopyright", "Footer copyright"], ["announcement", "Announcement banner"],
+              ] as const).map(([key, label]) => <label className="field" key={key}><span>{label}</span>
+                {["heroSubtitle", "announcement"].includes(key) ? <textarea rows={key === "announcement" ? 2 : 3} value={settingsDraft[key]} onChange={(event) => updateSetting(key, event.target.value)} /> :
+                  <input type={key === "contactEmail" ? "email" : "text"} value={settingsDraft[key]} onChange={(event) => updateSetting(key, event.target.value)} />}
+              </label>)}
+              <label className="field platform-field-wide"><span>About section text</span><textarea rows={3} value={settingsDraft.aboutText} onChange={(event) => updateSetting("aboutText", event.target.value)} /></label>
+            </div>
+            <button type="submit" className="button button-primary" disabled={busy}><Check size={14} />{busy ? "Saving…" : "Save global settings"}</button>
+          </form>
+        </section>
+      </div>
+      <footer className="platform-footer">{settingsDraft.footerCopyright}</footer>
+    </div>
   </main>;
 }
 
@@ -357,6 +647,8 @@ function App() {
   const [currentUser, setCurrentUser] = useState<Account | null>(savedAccount);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("library-theme") === "dark");
   const [sessionLoading, setSessionLoading] = useState(Boolean(localStorage.getItem("library-token")) && !savedAccount());
+  const [loginPage, setLoginPage] = useState(() => window.location.pathname === "/login");
+  const [activeTenantId, setActiveTenantId] = useState(() => localStorage.getItem("library-active-tenant"));
   const [page, setPage] = useState<Page>("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [records, setRecords] = useState<Row[]>([]);
@@ -389,8 +681,16 @@ function App() {
   }, [darkMode]);
 
   useEffect(() => {
+    const handleNavigation = () => setLoginPage(window.location.pathname === "/login");
+    window.addEventListener("popstate", handleNavigation);
+    return () => window.removeEventListener("popstate", handleNavigation);
+  }, []);
+
+  useEffect(() => {
     const unauthenticated = () => {
       localStorage.removeItem("library-user");
+      setApiTenantId(null);
+      setActiveTenantId(null);
       setCurrentUser(null);
       setToken(null);
     };
@@ -409,6 +709,8 @@ function App() {
       if (cancelled) return;
       localStorage.removeItem("library-token");
       localStorage.removeItem("library-user");
+      window.history.replaceState({}, "", "/");
+      setLoginPage(false);
       setToken(null);
     }).finally(() => {
       if (!cancelled) setSessionLoading(false);
@@ -416,9 +718,21 @@ function App() {
     return () => { cancelled = true; };
   }, [token, currentUser]);
 
+  useEffect(() => {
+    if (!token || currentUser?.role !== "SUPER_ADMIN" || activeTenantId) return;
+    let cancelled = false;
+    void api.get<LibrarySettings>("/platform/settings").then((settings) => {
+      if (!cancelled) setLibrarySettings(settings);
+    }).catch((cause: unknown) => {
+      if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load platform settings.");
+    });
+    return () => { cancelled = true; };
+  }, [token, currentUser?.role, activeTenantId, setLibrarySettings]);
+
   const loanStatusFilter = page === "circulation" || page === "teacherBorrowing" ? statusFilter : "ALL";
   const load = useCallback(async () => {
-    if (!token || !currentUser || currentUser.role === "MEMBER") return;
+    if (!token || !currentUser || currentUser.role === "MEMBER" ||
+        (currentUser.role === "SUPER_ADMIN" && !activeTenantId)) return;
     const sequence = ++loadSequence.current;
     const isCurrentLoad = () => sequence === loadSequence.current;
     setLoading(true);
@@ -469,7 +783,7 @@ function App() {
     } finally {
       if (isCurrentLoad()) setLoading(false);
     }
-  }, [token, currentUser, page, query, loanStatusFilter, mediaCategoryFilter, t]);
+  }, [token, currentUser, activeTenantId, page, query, loanStatusFilter, mediaCategoryFilter, t]);
 
   useEffect(() => {
     const debounce = ["books", "examSheets", "students", "staff", "idCards", "inventory", "media"].includes(page) ? 250 : 0;
@@ -531,17 +845,72 @@ function App() {
     return categoryFiltered;
   }, [records, page, isDataPage, statusFilter, mediaCategoryFilter, query]);
 
-  if (!token) return <Login libraryName={librarySettings.libraryName} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onLogin={(value, account) => { setToken(value); setCurrentUser(account); }} />;
-  if (sessionLoading || !currentUser) return <div className="loading-state">{t("loading")}</div>;
-
   const signOut = () => {
     localStorage.removeItem("library-token");
     localStorage.removeItem("library-user");
+    setApiTenantId(null);
+    setActiveTenantId(null);
+    window.history.replaceState({}, "", "/");
+    setLoginPage(false);
     setCurrentUser(null);
     setToken(null);
   };
 
-  if (currentUser.role === "MEMBER") return <SelfServicePortal user={currentUser} libraryName={librarySettings.libraryName} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onSignOut={signOut} />;
+  async function enterTenant(tenantId: string) {
+    setApiTenantId(tenantId);
+    setActiveTenantId(tenantId);
+    setPage("dashboard");
+    setError("");
+    setSuccess("");
+    try {
+      const settings = await api.get<LibrarySettings>("/admin/settings");
+      setLibrarySettings(settings);
+    } catch (cause) {
+      setApiTenantId(null);
+      setActiveTenantId(null);
+      setError(cause instanceof Error ? cause.message : "Unable to open the selected school.");
+    }
+  }
+
+  function returnToPlatform() {
+    setApiTenantId(null);
+    setActiveTenantId(null);
+    setPage("dashboard");
+    setError("");
+    setSuccess("");
+  }
+
+  if (!token) {
+    const openLogin = () => {
+      window.history.pushState({}, "", "/login");
+      setLoginPage(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const goHome = () => {
+      window.history.pushState({}, "", "/");
+      setLoginPage(false);
+    };
+    if (!loginPage) return <LandingPage settings={librarySettings} onLogin={openLogin} />;
+    return <Login libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} footerCopyright={librarySettings.footerCopyright}
+      darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onBackToHome={goHome}
+      onLogin={(value, account) => { setApiTenantId(null); setActiveTenantId(null); window.history.replaceState({}, "", "/"); setLoginPage(false); setToken(value); setCurrentUser(account); }} />;
+  }
+  if (sessionLoading || !currentUser) return <div className="loading-state">{t("loading")}</div>;
+
+  if (currentUser.role === "SUPER_ADMIN" && !activeTenantId) return <PlatformAdminDashboard
+    settings={librarySettings}
+    onSaveSettings={async (nextSettings) => {
+      const saved = await api.put<LibrarySettings>("/platform/settings", nextSettings);
+      setLibrarySettings(saved);
+      await setLanguage(saved.defaultLanguage);
+      return saved;
+    }}
+    onUploadLogo={(file) => uploadLibraryLogo(file, "/platform/upload")}
+    onSwitchTenant={enterTenant}
+    onSignOut={signOut}
+  />;
+
+  if (currentUser.role === "MEMBER") return <SelfServicePortal user={currentUser} libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} onSignOut={signOut} />;
 
   const changeLanguage = () => { void setLanguage(language === "en" ? "am" : "en"); };
   const selectedItem = navItems.find((item) => item.page === page);
@@ -1140,7 +1509,7 @@ function App() {
 
   return <div className="app-shell">
     <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
-      <Brand libraryName={librarySettings.libraryName} />
+      <Brand libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} />
       <div className="nav-caption">{t("overview")}</div>
       <nav className="nav-list">
         {navItems.filter((item) => item.section === "main" && (item.page !== "settings" || currentUser.role === "ADMIN")).map((item) => {
@@ -1162,6 +1531,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><div className="sidebar-tip-title">{t("digitalLibrary")}</div><div className="sidebar-tip-text">{t("resourcesDescription")}</div></div>
+        {currentUser.role === "SUPER_ADMIN" && <button type="button" className="button platform-return-button" onClick={returnToPlatform}><Building2 size={14} />Platform dashboard</button>}
         <div className="profile">
           <div className="avatar">AD</div><div style={{ minWidth: 0, flex: 1 }}><div className="profile-name">{t("admin")}</div><div className="profile-role">{t("adminSettings")}</div></div>
           <button className="icon-button" aria-label={t("signOut")} title={t("signOut")} onClick={signOut}><LogOut size={15} /></button>
@@ -1198,7 +1568,7 @@ function App() {
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
           onClearHistory={() => void clearReservationHistory()} />}
-        {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} libraryName={librarySettings.libraryName} busy={busy} onSave={saveLibrarySettings}
+        {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} libraryName={librarySettings.libraryName} busy={busy} onSave={saveLibrarySettings} onUploadLogo={uploadLibraryLogo}
           onChangeLanguage={setLanguage} onChangePassword={changePassword}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
@@ -1336,8 +1706,8 @@ function SearchableLoanItemSelect({ books, examSheets, selected, onChange, t }: 
   </div>;
 }
 
-function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignOut }: {
-  user: Account; libraryName: string; darkMode: boolean; onToggleTheme: () => void; onSignOut: () => void;
+function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme, onSignOut }: {
+  user: Account; libraryName: string; logoUrl: string; darkMode: boolean; onToggleTheme: () => void; onSignOut: () => void;
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations">("dashboard");
@@ -1500,7 +1870,7 @@ function SelfServicePortal({ user, libraryName, darkMode, onToggleTheme, onSignO
 
   return <div className="portal-shell">
     <header className="topbar portal-topbar">
-      <Brand libraryName={libraryName} />
+      <Brand libraryName={libraryName} logoUrl={logoUrl} />
       <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
         <InstallAppControl t={t} />
         <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
@@ -2055,10 +2425,10 @@ function Reports({ stats, loading, libraryName, t }: { stats: Stats | null; load
   </>;
 }
 
-function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
+function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave, onUploadLogo, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
   fields: FormField[]; loading: boolean; t: (key: string) => string; settings: LibrarySettings; busy: boolean;
   libraryName: string;
-  onSave: (settings: LibrarySettings) => Promise<void>; onAdd: () => void;
+  onSave: (settings: LibrarySettings) => Promise<void>; onUploadLogo: (file: File) => Promise<string>; onAdd: () => void;
   onEdit: (field: FormField) => void; onRemove: (id: string) => void;
   onChangeLanguage: (language: "en" | "am") => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
@@ -2072,6 +2442,8 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState("");
   useEffect(() => {
     setDraft(settings);
     setFooterNoticeEnglish(settings.englishText.footerNotice || "");
@@ -2125,6 +2497,22 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
     }
   }
 
+  async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setLogoUploading(true);
+    setLogoUploadError("");
+    try {
+      const logoUrl = await onUploadLogo(file);
+      setDraft((current) => ({ ...current, logoUrl }));
+    } catch (cause) {
+      setLogoUploadError(cause instanceof Error ? cause.message : "Unable to upload the library logo.");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   return <>
     <section className="panel settings-form" aria-labelledby="admin-settings-welcome">
       <div className="settings-body">
@@ -2141,8 +2529,29 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
           <FieldInput label={t("appTitle")} name="app-title" value={draft.appTitle} onChange={(value) => setDraft({ ...draft, appTitle: value })} required />
           <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
           <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
+          <FieldInput label="Footer copyright text" name="footer-copyright" value={draft.footerCopyright} onChange={(value) => setDraft({ ...draft, footerCopyright: value })} maxLength={120} />
           <FieldInput label={`${t("footerNotice")} · ${t("english")}`} name="footer-notice-en" value={footerNoticeEnglish} onChange={setFooterNoticeEnglish} placeholder={t("footerNoticePlaceholder")} maxLength={500} />
           <FieldInput label={`${t("footerNotice")} · ${t("amharic")}`} name="footer-notice-am" value={footerNoticeAmharic} onChange={setFooterNoticeAmharic} placeholder={t("footerNoticePlaceholder")} maxLength={500} />
+        </div>
+        <div className="settings-landing-heading"><div><div className="panel-title">Landing page content</div><div className="panel-subtitle">Changes are published immediately after saving.</div></div></div>
+        <div className="settings-logo-row">
+          <div className="settings-logo-preview">{draft.logoUrl ? <img src={draft.logoUrl} alt="Current library logo" /> : <LibraryBig size={23} />}</div>
+          <div className="field settings-logo-upload"><label htmlFor="settings-logo-file">School / library logo</label><input id="settings-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => void uploadLogo(event)} disabled={logoUploading} /><small>Upload PNG, JPG, WEBP, or GIF, up to 5 MB.</small></div>
+          <FieldInput label="Logo image URL" name="settings-logo-url" type="url" value={draft.logoUrl} onChange={(value) => setDraft({ ...draft, logoUrl: value })} placeholder="https://…" maxLength={2048} />
+        </div>
+        {logoUploading && <div className="settings-upload-status" role="status">Uploading logo…</div>}
+        {logoUploadError && <div className="notice" role="alert">{logoUploadError}</div>}
+        <div className="form-grid settings-landing-fields">
+          <FieldInput label="Hero title" name="landing-title" value={draft.landingTitle} onChange={(value) => setDraft({ ...draft, landingTitle: value })} maxLength={160} required />
+          <FieldInput label="Hero subtitle" name="landing-subtitle" value={draft.heroSubtitle} onChange={(value) => setDraft({ ...draft, heroSubtitle: value })} maxLength={400} required />
+          <FieldInput label="About section title" name="about-title" value={draft.aboutTitle} onChange={(value) => setDraft({ ...draft, aboutTitle: value })} maxLength={120} required />
+          <FieldInput label="Features section title" name="features-title" value={draft.featuresTitle} onChange={(value) => setDraft({ ...draft, featuresTitle: value })} maxLength={120} required />
+          <FieldInput label="Catalog section title" name="catalog-title" value={draft.catalogTitle} onChange={(value) => setDraft({ ...draft, catalogTitle: value })} maxLength={120} required />
+          <FieldInput label="Contact section title" name="contact-title" value={draft.contactTitle} onChange={(value) => setDraft({ ...draft, contactTitle: value })} maxLength={120} required />
+          <div className="field settings-wide-field"><label htmlFor="about-description">About section description</label><textarea id="about-description" value={draft.aboutText} maxLength={1000} onChange={(event) => setDraft({ ...draft, aboutText: event.target.value })} required /></div>
+          <FieldInput label="Contact phone" name="landing-phone" type="tel" value={draft.contactPhone} onChange={(value) => setDraft({ ...draft, contactPhone: value })} maxLength={40} />
+          <FieldInput label="Contact email" name="landing-email" type="email" value={draft.contactEmail} onChange={(value) => setDraft({ ...draft, contactEmail: value })} maxLength={254} />
+          <div className="field settings-wide-field"><label htmlFor="landing-announcement">Announcement banner</label><textarea id="landing-announcement" value={draft.announcement} maxLength={300} onChange={(event) => setDraft({ ...draft, announcement: event.target.value })} placeholder="A short announcement for visitors" /></div>
         </div>
         <div className="settings-translation-heading"><div><div className="panel-title">{t("interfaceText")}</div><div className="panel-subtitle">{t("interfaceTextHelp")}</div></div>
           <button type="button" className="button" onClick={() => setTranslations([...translations, { key: "", english: "", amharic: "" }])}><Plus size={13} />{t("addTranslation")}</button>

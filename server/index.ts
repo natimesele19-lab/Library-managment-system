@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import { Readable } from "node:stream";
-import express, { type NextFunction, type Request, type Response } from "express";
+import express, { type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
@@ -14,9 +14,10 @@ import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import multer from "multer";
 import { PDFDocument } from "pdf-lib";
 import { FormEntity, Prisma, type PatronType } from "@prisma/client";
-import { authenticate, requireAdmin, requireStaff, type AuthRequest } from "./auth.js";
+import { authenticate, requireAdmin, requirePlatformAdmin, requireStaff, type AuthRequest } from "./auth.js";
 import { prisma } from "./prisma.js";
 import { sendDailyOverdueReminders } from "./reminders.js";
+import { currentTenantId, runWithTenant } from "./tenant-context.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -54,6 +55,10 @@ const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unk
       });
     });
   };
+const platformRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
+  asyncRoute((req, res) => runWithTenant(null, () => handler(req, res)));
+const tenantRoute = (tenantId: string, handler: RequestHandler): RequestHandler =>
+  (req, res, next) => runWithTenant(tenantId, () => handler(req, res, next));
 
 app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -72,16 +77,46 @@ app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, stan
 app.use("/api/admin/change-password", rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+app.use("/api/public", (req: Request, res: Response, next: NextFunction) => {
+  const tenantId = req.header("x-tenant-id")?.trim() || "default";
+  void prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, active: true } }).then((tenant) => {
+    if (!tenant?.active) {
+      res.status(404).json({ error: "The requested school is unavailable." });
+      return;
+    }
+    runWithTenant(tenant.id, next);
+  }).catch(next);
+});
 app.get("/api/public/settings", settingsRoute(async (_req, res) => {
-  const settings = await prisma.librarySetting.findUnique({ where: { id: "global" } });
+  const settings = await prisma.librarySetting.findFirst();
   res.json({
     libraryName: settings?.libraryName || "Libra",
     appTitle: settings?.appTitle || "Library Management",
+    logoUrl: settings?.logoUrl || "",
+    landingTitle: settings?.landingTitle || "A brighter way to discover your next favorite book.",
+    heroSubtitle: settings?.heroSubtitle || "One welcoming place to explore, borrow, and manage your library.",
+    aboutTitle: settings?.aboutTitle || "A library that moves with you.",
+    aboutText: settings?.aboutText || "Bring your collection, readers, and everyday library work together in one thoughtful digital space.",
+    featuresTitle: settings?.featuresTitle || "Everything your library needs.",
+    catalogTitle: settings?.catalogTitle || "Find your next read.",
+    contactTitle: settings?.contactTitle || "Let’s stay in touch.",
+    contactPhone: settings?.contactPhone || "",
+    contactEmail: settings?.contactEmail || "",
+    announcement: settings?.announcement || "",
+    footerCopyright: settings?.footerCopyright || "MADE BY NATNAEL MESELE",
     defaultLanguage: settings?.defaultLanguage || "en",
     finePerDay: settings?.finePerDay ?? defaultFinePerDay,
     englishText: settings ? JSON.parse(settings.englishText) : {},
     amharicText: settings ? JSON.parse(settings.amharicText) : {},
   });
+}));
+app.get("/api/public/catalog", asyncRoute(async (_req, res) => {
+  const books = await prisma.book.findMany({
+    take: 6,
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true, author: true, category: true, publishedYear: true, availableCopies: true },
+  });
+  res.json(books);
 }));
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const { identifier, email, password, mode } = req.body as { identifier?: unknown; email?: unknown; password?: unknown; mode?: unknown };
@@ -123,6 +158,15 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
     res.status(401).json({ error: "Email or password is incorrect." });
     return;
   }
+  if (user.role !== "SUPER_ADMIN") {
+    const tenant = user.tenantId
+      ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { active: true } })
+      : null;
+    if (!tenant?.active) {
+      res.status(401).json({ error: "Email or password is incorrect." });
+      return;
+    }
+  }
   if (user.role === "MEMBER" && (!user.patron?.active || !user.patronId)) {
     res.status(401).json({ error: "Email or password is incorrect." });
     return;
@@ -132,21 +176,28 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const token = jwt.sign({ role: user.role }, secret, { subject: user.id, expiresIn: "8h", issuer: "library-management" });
   res.json({ token, user: {
     id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role,
-    patronId: user.patronId || undefined, patronType: user.patron?.type,
+    tenantId: user.tenantId, patronId: user.patronId || undefined, patronType: user.patron?.type,
   } });
 }));
 
 app.use("/api", authenticate, (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== "MEMBER") { next(); return; }
-  const memberRead = req.method === "GET" && (
-    ["/books", "/books/categories", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
-    /^\/(books|exam-sheets)\/[^/]+\/file$/.test(req.path) ||
-    /^\/media\/[^/]+\/file$/.test(req.path)
-  );
-  const memberReservation = req.method === "POST" &&
-    (req.path === "/portal/reservations" || /^\/portal\/reservations\/[^/]+\/cancel$/.test(req.path));
-  if (memberRead || memberReservation) { next(); return; }
-  res.status(403).json({ error: "This account cannot access staff library operations." });
+  const platformRequest = req.path.startsWith("/platform/");
+  if (req.user?.role === "SUPER_ADMIN" && !platformRequest && req.path !== "/auth/me" && !req.tenantId) {
+    res.status(403).json({ error: "Select a school before opening school management tools." });
+    return;
+  }
+  runWithTenant(req.tenantId ?? null, () => {
+    if (req.user?.role !== "MEMBER") { next(); return; }
+    const memberRead = req.method === "GET" && (
+      ["/books", "/books/categories", "/exam-sheets", "/auth/me", "/portal/me", "/portal/loans", "/portal/reservations", "/media"].includes(req.path) ||
+      /^\/(books|exam-sheets)\/[^/]+\/file$/.test(req.path) ||
+      /^\/media\/[^/]+\/file$/.test(req.path)
+    );
+    const memberReservation = req.method === "POST" &&
+      (req.path === "/portal/reservations" || /^\/portal\/reservations\/[^/]+\/cancel$/.test(req.path));
+    if (memberRead || memberReservation) { next(); return; }
+    res.status(403).json({ error: "This account cannot access staff library operations." });
+  });
 });
 
 app.get("/api/auth/me", asyncRoute(async (req, res) => {
@@ -154,7 +205,7 @@ app.get("/api/auth/me", asyncRoute(async (req, res) => {
     where: { id: req.user!.id }, include: { patron: { select: { name: true, type: true } } },
   });
   if (!user) { res.status(401).json({ error: "Account not found." }); return; }
-  res.json({ id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role, patronId: user.patronId || undefined, patronType: user.patron?.type });
+  res.json({ id: user.id, name: user.patron?.name || user.name, email: user.email, role: user.role, tenantId: user.tenantId, patronId: user.patronId || undefined, patronType: user.patron?.type });
 }));
 
 const changeAdminPassword = asyncRoute(async (req, res) => {
@@ -202,10 +253,22 @@ app.route("/api/admin/change-password")
   .put(requireAdmin, changeAdminPassword);
 
 const getAdminSettings = settingsRoute(async (_req, res) => {
-  const settings = await prisma.librarySetting.findUnique({ where: { id: "global" } });
+  const settings = await prisma.librarySetting.findFirst();
   res.json({
     libraryName: settings?.libraryName || "Libra",
     appTitle: settings?.appTitle || "Library Management",
+    logoUrl: settings?.logoUrl || "",
+    landingTitle: settings?.landingTitle || "A brighter way to discover your next favorite book.",
+    heroSubtitle: settings?.heroSubtitle || "One welcoming place to explore, borrow, and manage your library.",
+    aboutTitle: settings?.aboutTitle || "A library that moves with you.",
+    aboutText: settings?.aboutText || "Bring your collection, readers, and everyday library work together in one thoughtful digital space.",
+    featuresTitle: settings?.featuresTitle || "Everything your library needs.",
+    catalogTitle: settings?.catalogTitle || "Find your next read.",
+    contactTitle: settings?.contactTitle || "Let’s stay in touch.",
+    contactPhone: settings?.contactPhone || "",
+    contactEmail: settings?.contactEmail || "",
+    announcement: settings?.announcement || "",
+    footerCopyright: settings?.footerCopyright || "MADE BY NATNAEL MESELE",
     defaultLanguage: settings?.defaultLanguage || "en",
     finePerDay: settings?.finePerDay ?? defaultFinePerDay,
     englishText: settings ? JSON.parse(settings.englishText) : {},
@@ -224,30 +287,83 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     res.status(400).json({ error: "Library name and app title must each contain 1–80 characters." });
     return;
   }
-  const current = req.body.defaultLanguage === undefined
-    ? await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { defaultLanguage: true, finePerDay: true } })
-    : null;
+  const current = await prisma.librarySetting.findFirst();
   const defaultLanguage = req.body.defaultLanguage ?? current?.defaultLanguage ?? "en";
   if (defaultLanguage !== "en" && defaultLanguage !== "am") {
     res.status(400).json({ error: "Default language must be either 'en' or 'am'." });
     return;
   }
   const currentFinePerDay = requestedFinePerDay === undefined
-    ? (current?.finePerDay ?? (await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { finePerDay: true } }))?.finePerDay ?? defaultFinePerDay)
+    ? (current?.finePerDay ?? defaultFinePerDay)
     : requestedFinePerDay;
   if (typeof currentFinePerDay !== "number" || !Number.isFinite(currentFinePerDay) || currentFinePerDay < 0 || currentFinePerDay > 1_000_000) {
     res.status(400).json({ error: "Fine amount per day must be between 0 and 1,000,000." });
     return;
   }
+  const landingDefaults = {
+    logoUrl: "",
+    landingTitle: "A brighter way to discover your next favorite book.",
+    heroSubtitle: "One welcoming place to explore, borrow, and manage your library.",
+    aboutTitle: "A library that moves with you.",
+    aboutText: "Bring your collection, readers, and everyday library work together in one thoughtful digital space.",
+    featuresTitle: "Everything your library needs.",
+    catalogTitle: "Find your next read.",
+    contactTitle: "Let’s stay in touch.",
+    contactPhone: "",
+    contactEmail: "",
+    announcement: "",
+    footerCopyright: "MADE BY NATNAEL MESELE",
+  };
+  const settingLimits: Record<keyof typeof landingDefaults, number> = {
+    logoUrl: 2048,
+    landingTitle: 160,
+    heroSubtitle: 400,
+    aboutTitle: 120,
+    aboutText: 1000,
+    featuresTitle: 120,
+    catalogTitle: 120,
+    contactTitle: 120,
+    contactPhone: 40,
+    contactEmail: 254,
+    announcement: 300,
+    footerCopyright: 120,
+  };
+  const landingSettings = {} as typeof landingDefaults;
+  for (const key of Object.keys(landingDefaults) as (keyof typeof landingDefaults)[]) {
+    const requested = req.body[key];
+    const value = requested === undefined ? current?.[key] ?? landingDefaults[key] : requested;
+    if (typeof value !== "string" || value.length > settingLimits[key]) {
+      res.status(400).json({ error: `${key} must be a string of at most ${settingLimits[key]} characters.` });
+      return;
+    }
+    landingSettings[key] = value.trim();
+  }
+  if (landingSettings.logoUrl) {
+    try {
+      if (new URL(landingSettings.logoUrl).protocol !== "https:") throw new Error();
+    } catch {
+      res.status(400).json({ error: "Logo URL must use HTTPS." });
+      return;
+    }
+  }
+  if (landingSettings.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(landingSettings.contactEmail)) {
+    res.status(400).json({ error: "Enter a valid contact email address." });
+    return;
+  }
   const englishText = validateTranslationMap(req.body.englishText);
   const amharicText = validateTranslationMap(req.body.amharicText);
-  const settings = await prisma.librarySetting.upsert({
-    where: { id: "global" },
-    create: { id: "global", libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
-    update: { libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage, finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText), amharicText: JSON.stringify(amharicText) },
-  });
+  const data = {
+    libraryName: libraryName.trim(), appTitle: appTitle.trim(), defaultLanguage,
+    finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),
+    amharicText: JSON.stringify(amharicText), ...landingSettings,
+  };
+  const settings = current
+    ? await prisma.librarySetting.update({ where: { id: current.id }, data })
+    : await prisma.librarySetting.create({
+      data: { ...data, tenantId: currentTenantId() ?? req.tenantId ?? "default" },
+    });
   await audit(req, "UPDATE", "LIBRARY_SETTINGS", settings.id);
-  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
+  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, ...landingSettings, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
 });
 
 app.route("/api/admin/settings")
@@ -255,6 +371,135 @@ app.route("/api/admin/settings")
   .post(requireAdmin, saveAdminSettings)
   .put(requireAdmin, saveAdminSettings);
 app.put("/api/settings", requireAdmin, saveAdminSettings);
+app.route("/api/platform/settings")
+  .get(requirePlatformAdmin, tenantRoute("default", getAdminSettings))
+  .put(requirePlatformAdmin, tenantRoute("default", saveAdminSettings));
+
+app.get("/api/platform/overview", requirePlatformAdmin, platformRoute(async (_req, res) => {
+  const [totalSchools, totalBooks, activeMembers] = await Promise.all([
+    prisma.tenant.count(),
+    prisma.book.count(),
+    prisma.patron.count({ where: { active: true } }),
+  ]);
+  res.json({ totalSchools, totalBooks, activeMembers });
+}));
+
+app.get("/api/platform/tenants", requirePlatformAdmin, platformRoute(async (_req, res) => {
+  const tenants = await prisma.tenant.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { books: true, patrons: true, users: true } } },
+  });
+  res.json(tenants);
+}));
+
+app.post("/api/platform/tenants", requirePlatformAdmin, platformRoute(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const requestedSlug = typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "";
+  const slug = requestedSlug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!name || name.length > 120 || !slug || slug.length > 63 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+    res.status(400).json({ error: "Enter a school name (up to 120 characters) and a valid URL-safe slug." });
+    return;
+  }
+  const initialAdminName = typeof body.initialAdminName === "string" ? body.initialAdminName.trim() : "";
+  const initialAdminEmail = typeof body.initialAdminEmail === "string" ? body.initialAdminEmail.trim().toLowerCase() : "";
+  const initialAdminPassword = typeof body.initialAdminPassword === "string" ? body.initialAdminPassword : "";
+  if (!initialAdminName || initialAdminName.length > 120 ||
+      initialAdminEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(initialAdminEmail) ||
+      initialAdminPassword.length < 12 || Buffer.byteLength(initialAdminPassword, "utf8") > 72) {
+    res.status(400).json({ error: "Provide an administrator name, valid email, and password between 12 and 72 UTF-8 bytes." });
+    return;
+  }
+  const adminPasswordHash = await bcrypt.hash(initialAdminPassword, 12);
+  const fields = ["city", "region", "contactEmail", "contactPhone"] as const;
+  const profile: Record<string, string> = {};
+  for (const field of fields) {
+    const value = typeof body[field] === "string" ? body[field].trim() : "";
+    if (value.length > (field === "contactEmail" ? 254 : 120)) {
+      res.status(400).json({ error: `${field} is too long.` });
+      return;
+    }
+    profile[field] = value;
+  }
+  if (profile.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.contactEmail)) {
+    res.status(400).json({ error: "Enter a valid contact email address." });
+    return;
+  }
+  try {
+    const tenant = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.tenant.create({ data: { name, slug, ...profile } });
+      await transaction.librarySetting.create({
+        data: { tenantId: created.id, libraryName: created.name, appTitle: `${created.name} Library` },
+      });
+      await transaction.user.create({
+        data: {
+          tenantId: created.id, name: initialAdminName, email: initialAdminEmail,
+          passwordHash: adminPasswordHash, role: "ADMIN",
+        },
+      });
+      return created;
+    });
+    await audit(req, "CREATE", "TENANT", tenant.id, { slug: tenant.slug });
+    res.status(201).json(tenant);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(409, "That school slug or administrator email is already in use.");
+    }
+    throw error;
+  }
+}));
+
+app.put("/api/platform/tenants/:id", requirePlatformAdmin, platformRoute(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const data: Prisma.TenantUpdateInput = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) {
+      res.status(400).json({ error: "School name must contain 1–120 characters." });
+      return;
+    }
+    data.name = body.name.trim();
+  }
+  if (body.slug !== undefined) {
+    if (typeof body.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.slug.trim().toLowerCase()) || body.slug.trim().length > 63) {
+      res.status(400).json({ error: "Enter a valid URL-safe school slug." });
+      return;
+    }
+    data.slug = body.slug.trim().toLowerCase();
+  }
+  for (const field of ["city", "region", "contactEmail", "contactPhone"] as const) {
+    if (body[field] === undefined) continue;
+    const value = body[field];
+    if (typeof value !== "string" || value.trim().length > (field === "contactEmail" ? 254 : 120)) {
+      res.status(400).json({ error: `${field} must be a valid string within the allowed length.` });
+      return;
+    }
+    data[field] = value.trim();
+  }
+  if (body.active !== undefined) {
+    if (typeof body.active !== "boolean") {
+      res.status(400).json({ error: "School status must be active or suspended." });
+      return;
+    }
+    data.active = body.active;
+  }
+  if (typeof data.contactEmail === "string" && data.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.contactEmail)) {
+    res.status(400).json({ error: "Enter a valid contact email address." });
+    return;
+  }
+  try {
+    const tenant = await prisma.tenant.update({ where: { id: req.params.id }, data });
+    await audit(req, "UPDATE", "TENANT", tenant.id, { active: tenant.active });
+    res.json(tenant);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(409, "A school with that slug already exists.");
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      throw new ApiError(404, "School not found.");
+    }
+    throw error;
+  }
+}));
 
 app.get("/api/portal/me", asyncRoute(async (req, res) => {
   if (!req.user?.patronId) { res.status(403).json({ error: "A linked patron account is required." }); return; }
@@ -595,7 +840,7 @@ app.put("/api/patrons/:id", asyncRoute(async (req, res) => {
           },
         });
       } else if (passwordHash) {
-        const existing = await transaction.user.findUnique({ where: { email: updated.email } });
+        const existing = await transaction.user.findFirst({ where: { email: updated.email } });
         if (existing) throw new ApiError(409, "This email address is already used by another account.");
         await transaction.user.create({
           data: { name: updated.name, email: updated.email, passwordHash, role: "MEMBER", patronId: updated.id },
@@ -635,7 +880,7 @@ app.post("/api/patrons/:id/account", asyncRoute(async (req, res) => {
         select: { id: true, email: true },
       });
     }
-    const existing = await transaction.user.findUnique({ where: { email: patron.email } });
+    const existing = await transaction.user.findFirst({ where: { email: patron.email } });
     if (existing) throw new ApiError(409, "This email address is already used by a staff account.");
     return transaction.user.create({
       data: { name: patron.name, email: patron.email, passwordHash, role: "MEMBER", patronId: patron.id },
@@ -1257,7 +1502,7 @@ function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiRespons
   });
 }
 
-app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRoute(async (req, res) => {
+const uploadLibraryFile = asyncRoute(async (req, res) => {
   if (!req.file) { res.status(400).json({ error: "A file is required." }); return; }
   const recordType = req.body.recordType;
   const recordId = optionalText(req.body.recordId);
@@ -1292,7 +1537,9 @@ app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), asyncRout
     public_id: uploaded.public_id,
     resource_type: uploaded.resource_type,
   });
-}));
+});
+app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), uploadLibraryFile);
+app.post("/api/platform/upload", requirePlatformAdmin, cloudinaryUpload.single("file"), tenantRoute("default", uploadLibraryFile));
 
 function cloudinaryPrivatePdfDownloadUrl(filePath: string): string | null {
   let url: URL;
@@ -1571,7 +1818,7 @@ function roundMoney(amount: number): number {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 async function getFinePerDay(): Promise<number> {
-  const settings = await prisma.librarySetting.findUnique({ where: { id: "global" }, select: { finePerDay: true } });
+  const settings = await prisma.librarySetting.findFirst({ select: { finePerDay: true } });
   return settings?.finePerDay ?? defaultFinePerDay;
 }
 function calculateCurrentFine(recordedFine: number, dueDate: Date, returnedAt: Date | null, finePerDay: number, today: Date): number {
@@ -1703,7 +1950,18 @@ async function start() {
   await mkdir(uploadDirectory, { recursive: true });
   app.listen(port, () => {
     console.log(`Library API listening on http://localhost:${port}`);
-    const runReminders = () => { void sendDailyOverdueReminders().catch((error) => console.error("Overdue reminder job failed:", error)); };
+    const runReminders = () => {
+      void (async () => {
+        const tenants = await prisma.tenant.findMany({ where: { active: true }, select: { id: true } });
+        for (const tenant of tenants) {
+          try {
+            await runWithTenant(tenant.id, () => sendDailyOverdueReminders());
+          } catch (error) {
+            console.error(`Overdue reminder job failed for school ${tenant.id}:`, error);
+          }
+        }
+      })().catch((error) => console.error("Overdue reminder job failed:", error));
+    };
     const startupTimer = setTimeout(runReminders, 15_000);
     startupTimer.unref();
     const reminderTimer = setInterval(runReminders, 60 * 60 * 1000);

@@ -4,6 +4,7 @@ const configuredApiUrl = (import.meta.env.VITE_API_URL?.trim() || "https://libra
 const API_BASE = /\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`;
 const CACHE_PREFIX = "library-cache-v1:";
 const QUEUE_KEY = "library-offline-queue-v1";
+const ACTIVE_TENANT_KEY = "library-active-tenant";
 const COLLECTION_PATHS = new Set([
   "/books",
   "/exam-sheets",
@@ -38,10 +39,16 @@ const EMPTY_DASHBOARD = {
 function currentUserId(): string {
   try {
     const user = JSON.parse(localStorage.getItem("library-user") || "null") as { id?: unknown } | null;
-    return typeof user?.id === "string" ? user.id : "anonymous";
+    const userId = typeof user?.id === "string" ? user.id : "anonymous";
+    return `${userId}:${localStorage.getItem(ACTIVE_TENANT_KEY) || "public-default"}`;
   } catch {
-    return "anonymous";
+    return `anonymous:${localStorage.getItem(ACTIVE_TENANT_KEY) || "public-default"}`;
   }
+}
+
+export function setApiTenantId(tenantId: string | null): void {
+  if (tenantId) localStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+  else localStorage.removeItem(ACTIVE_TENANT_KEY);
 }
 
 function cachePrefix(): string {
@@ -223,7 +230,10 @@ if (typeof window !== "undefined") {
 async function fetchApi(path: string, options: RequestInit): Promise<Response> {
   const url = `${API_BASE}${path}`;
   try {
-    return await fetch(url, options);
+    const headers = new Headers(options.headers);
+    const tenantId = localStorage.getItem(ACTIVE_TENANT_KEY);
+    if (tenantId) headers.set("X-Tenant-Id", tenantId);
+    return await fetch(url, { ...options, headers });
   } catch (cause) {
     const method = options.method || "GET";
     let endpoint: string;

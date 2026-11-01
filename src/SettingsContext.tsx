@@ -5,6 +5,18 @@ import i18n, { applyTextOverrides } from "./i18n";
 export type LibrarySettings = {
   libraryName: string;
   appTitle: string;
+  logoUrl: string;
+  landingTitle: string;
+  heroSubtitle: string;
+  aboutTitle: string;
+  aboutText: string;
+  featuresTitle: string;
+  catalogTitle: string;
+  contactTitle: string;
+  contactPhone: string;
+  contactEmail: string;
+  announcement: string;
+  footerCopyright: string;
   defaultLanguage: "en" | "am";
   finePerDay: number;
   englishText: Record<string, string>;
@@ -14,6 +26,18 @@ export type LibrarySettings = {
 const defaultLibrarySettings: LibrarySettings = {
   libraryName: "Libra",
   appTitle: "Library Management",
+  logoUrl: "",
+  landingTitle: "A brighter way to discover your next favorite book.",
+  heroSubtitle: "One welcoming place to explore, borrow, and manage your library.",
+  aboutTitle: "A library that moves with you.",
+  aboutText: "Bring your collection, readers, and everyday library work together in one thoughtful digital space.",
+  featuresTitle: "Everything your library needs.",
+  catalogTitle: "Find your next read.",
+  contactTitle: "Let’s stay in touch.",
+  contactPhone: "",
+  contactEmail: "",
+  announcement: "",
+  footerCopyright: "MADE BY NATNAEL MESELE",
   defaultLanguage: "en",
   finePerDay: 5,
   englishText: {},

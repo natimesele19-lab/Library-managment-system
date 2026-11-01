@@ -12,6 +12,7 @@ datasource db {
 
 enum UserRole {
   ADMIN
+  SUPER_ADMIN
   LIBRARIAN
   MEMBER
 }
@@ -40,125 +41,149 @@ enum ReservationStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
+  tenantId     String?       @default("default")
+  tenant       Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   name         String
-  email        String   @unique
+  email        String
   passwordHash String
-  role         UserRole @default(LIBRARIAN)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  role         UserRole      @default(LIBRARIAN)
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   auditLogs    AuditLog[]
   finePayments FinePayment[] @relation("FineReceived")
-  patronId     String?  @unique
-  patron       Patron?  @relation(fields: [patronId], references: [id], onDelete: Cascade)
+  patronId     String?       @unique
+  patron       Patron?       @relation(fields: [patronId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, email])
   @@index([role, active])
+  @@index([tenantId, role, active])
 }
 
 model Book {
-  id              String     @id @default(cuid())
+  id              String            @id @default(cuid())
+  tenantId        String            @default("default")
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   title           String
   author          String
-  isbn            String?    @unique
+  isbn            String?
   category        String?
   description     String?
   publisher       String?
   publishedYear   Int?
   shelfLocation   String?
   filePath        String?
-  copies          Int        @default(1)
-  availableCopies Int        @default(1)
-  customFields    String     @default("{}")
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  copies          Int               @default(1)
+  availableCopies Int               @default(1)
+  customFields    String            @default("{}")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   loanItems       LoanItem[]
   reservations    BookReservation[]
 
+  @@unique([tenantId, isbn])
   @@index([title])
   @@index([author])
   @@index([category])
+  @@index([tenantId, title])
 }
 
 model ExamSheet {
-  id              String     @id @default(cuid())
+  id              String            @id @default(cuid())
+  tenantId        String            @default("default")
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   title           String
   subject         String?
   grade           String?
   examYear        Int?
-  copies          Int        @default(1)
-  availableCopies Int        @default(1)
+  copies          Int               @default(1)
+  availableCopies Int               @default(1)
   description     String?
   filePath        String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   loanItems       LoanItem[]
   reservations    BookReservation[]
 
   @@index([title])
   @@index([subject])
+  @@index([tenantId, title])
 }
 
 model Patron {
-  id          String     @id @default(cuid())
-  memberCode  String     @unique
-  name        String
-  gender      String?
-  email       String     @unique
-  phone       String?
-  type        PatronType
-  grade       String?
-  department  String?
-  active      Boolean    @default(true)
-  customFields String    @default("{}")
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  loans       Loan[]
-  account     User?
+  id           String            @id @default(cuid())
+  tenantId     String            @default("default")
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  memberCode   String
+  name         String
+  gender       String?
+  email        String
+  phone        String?
+  type         PatronType
+  grade        String?
+  department   String?
+  active       Boolean           @default(true)
+  customFields String            @default("{}")
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  loans        Loan[]
+  account      User?
   reservations BookReservation[]
 
+  @@unique([tenantId, memberCode])
+  @@unique([tenantId, email])
   @@index([name])
   @@index([type, active])
+  @@index([tenantId, type, active])
 }
 
 model Loan {
-  id          String     @id @default(cuid())
-  patronId    String
-  patron      Patron     @relation(fields: [patronId], references: [id], onDelete: Restrict)
+  id           String     @id @default(cuid())
+  tenantId     String     @default("default")
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  patronId     String
+  patron       Patron     @relation(fields: [patronId], references: [id], onDelete: Restrict)
   borrowerType PatronType @default(STUDENT)
-  issuedAt    DateTime   @default(now())
-  borrowDate  DateTime   @default(now())
-  dueDate     DateTime
-  status      LoanStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  loanItems   LoanItem[]
+  issuedAt     DateTime   @default(now())
+  borrowDate   DateTime   @default(now())
+  dueDate      DateTime
+  status       LoanStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  loanItems    LoanItem[]
 
   @@index([patronId, status])
   @@index([borrowerType, status])
   @@index([status, dueDate])
+  @@index([tenantId, status])
 }
 
 model LoanItem {
-  id          String     @id @default(cuid())
+  id          String            @id @default(cuid())
+  tenantId    String            @default("default")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   loanId      String
-  loan        Loan       @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  loan        Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
   bookId      String?
-  book        Book?      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  book        Book?             @relation(fields: [bookId], references: [id], onDelete: Restrict)
   examSheetId String?
-  examSheet   ExamSheet? @relation(fields: [examSheetId], references: [id], onDelete: Restrict)
+  examSheet   ExamSheet?        @relation(fields: [examSheetId], references: [id], onDelete: Restrict)
   returnedAt  DateTime?
-  fine        Float      @default(0)
-  createdAt   DateTime   @default(now())
-  payments   FinePayment[]
-  reminders  OverdueReminder[]
+  fine        Float             @default(0)
+  createdAt   DateTime          @default(now())
+  payments    FinePayment[]
+  reminders   OverdueReminder[]
 
   @@index([loanId])
   @@index([bookId, returnedAt])
   @@index([examSheetId, returnedAt])
+  @@index([tenantId, loanId])
 }
 
 model BookReservation {
   id          String            @id @default(cuid())
+  tenantId    String            @default("default")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   patronId    String
   patron      Patron            @relation(fields: [patronId], references: [id], onDelete: Cascade)
   bookId      String?
@@ -172,28 +197,34 @@ model BookReservation {
   @@index([patronId, status, requestedAt])
   @@index([bookId, status])
   @@index([examSheetId, status])
+  @@index([tenantId, status])
 }
 
 model InventoryAsset {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
+  tenantId     String    @default("default")
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   name         String
   category     String
-  quantity     Int      @default(1)
+  quantity     Int       @default(1)
   location     String?
-  condition    String   @default("GOOD")
+  condition    String    @default("GOOD")
   purchaseDate DateTime?
-  value Float?
+  value        Float?
   notes        String?
-  customFields String   @default("{}")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  customFields String    @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([category])
   @@index([condition])
+  @@index([tenantId, category])
 }
 
 model MediaAsset {
   id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   title     String
   author    String?
   mediaType String
@@ -206,23 +237,29 @@ model MediaAsset {
 
   @@index([mediaType])
   @@index([category])
+  @@index([tenantId, createdAt])
 }
 
 model FinePayment {
-  id          String   @id @default(cuid())
-  loanItemId  String
-  loanItem    LoanItem @relation(fields: [loanItemId], references: [id], onDelete: Restrict)
-  amount Float
+  id           String   @id @default(cuid())
+  tenantId     String   @default("default")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  loanItemId   String
+  loanItem     LoanItem @relation(fields: [loanItemId], references: [id], onDelete: Restrict)
+  amount       Float
   receivedById String
-  receivedBy  User     @relation("FineReceived", fields: [receivedById], references: [id], onDelete: Restrict)
-  paidAt      DateTime @default(now())
+  receivedBy   User     @relation("FineReceived", fields: [receivedById], references: [id], onDelete: Restrict)
+  paidAt       DateTime @default(now())
 
   @@index([paidAt])
   @@index([loanItemId])
+  @@index([tenantId, paidAt])
 }
 
 model OverdueReminder {
   id          String   @id @default(cuid())
+  tenantId    String   @default("default")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   loanItemId  String
   loanItem    LoanItem @relation(fields: [loanItemId], references: [id], onDelete: Cascade)
   reminderDay String
@@ -230,21 +267,38 @@ model OverdueReminder {
 
   @@unique([loanItemId, reminderDay])
   @@index([reminderDay])
+  @@index([tenantId, reminderDay])
 }
 
 model LibrarySetting {
-  id              String   @id @default("global")
+  id              String   @id @default(cuid())
+  tenantId        String   @unique @default("default")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   libraryName     String   @default("Libra")
   appTitle        String   @default("Library Management")
   defaultLanguage String   @default("en")
   finePerDay      Float    @default(5)
   englishText     String   @default("{}")
   amharicText     String   @default("{}")
+  logoUrl         String   @default("")
+  landingTitle    String   @default("A brighter way to discover your next favorite book.")
+  heroSubtitle    String   @default("One welcoming place to explore, borrow, and manage your library.")
+  aboutTitle      String   @default("A library that moves with you.")
+  aboutText       String   @default("Bring your collection, readers, and everyday library work together in one thoughtful digital space.")
+  featuresTitle   String   @default("Everything your library needs.")
+  catalogTitle    String   @default("Find your next read.")
+  contactTitle    String   @default("Let’s stay in touch.")
+  contactPhone    String   @default("")
+  contactEmail    String   @default("")
+  announcement    String   @default("")
+  footerCopyright String   @default("MADE BY NATNAEL MESELE")
   updatedAt       DateTime @updatedAt
 }
 
 model CustomField {
   id        String     @id @default(cuid())
+  tenantId  String     @default("default")
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   key       String
   label     String
   labelAm   String?
@@ -254,21 +308,52 @@ model CustomField {
   options   String?
   createdAt DateTime   @default(now())
 
-  @@unique([key, entity])
+  @@unique([tenantId, key, entity])
   @@index([entity])
+  @@index([tenantId, entity])
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String
-  entity     String
-  entityId   String?
-  details    String?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
 
   @@index([entity, entityId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model Tenant {
+  id           String            @id @default(cuid())
+  slug         String            @unique
+  name         String
+  city         String            @default("")
+  region       String            @default("")
+  contactEmail String            @default("")
+  contactPhone String            @default("")
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  users        User[]
+  books        Book[]
+  examSheets   ExamSheet[]
+  patrons      Patron[]
+  loans        Loan[]
+  loanItems    LoanItem[]
+  reservations BookReservation[]
+  inventory    InventoryAsset[]
+  media        MediaAsset[]
+  finePayments FinePayment[]
+  reminders    OverdueReminder[]
+  settings     LibrarySetting?
+  customFields CustomField[]
+  auditLogs    AuditLog[]
 }

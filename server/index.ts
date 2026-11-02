@@ -349,7 +349,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   const isPlatformAdmin = req.user?.role === "SUPER_ADMIN";
   const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
   const canUpdatePortalName = isPlatformAdmin && req.path === "/api/platform/settings";
-  const tenantId = currentTenantId() ?? req.tenantId;
+  const tenantId = req.tenantId ?? currentTenantId() ?? "default";
   const canUpdateSchoolDisplayName = Boolean(tenantId && tenantId !== "default") &&
     (req.user?.role === "ADMIN" || isPlatformAdmin);
   const canUpdateLibraryName = canUpdatePortalName || canUpdateSchoolDisplayName;
@@ -363,7 +363,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     res.status(400).json({ error: "Application title must contain 1–80 characters." });
     return;
   }
-  const current = await prisma.librarySetting.findFirst();
+  const current = await prisma.librarySetting.findUnique({ where: { tenantId } });
   const defaultLanguage = req.body.defaultLanguage ?? current?.defaultLanguage ?? "en";
   if (defaultLanguage !== "en" && defaultLanguage !== "am") {
     res.status(400).json({ error: "Default language must be either 'en' or 'am'." });
@@ -443,11 +443,11 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),
     amharicText: JSON.stringify(amharicText), ...landingSettings,
   };
-  const settings = current
-    ? await prisma.librarySetting.update({ where: { id: current.id }, data })
-    : await prisma.librarySetting.create({
-      data: { ...data, tenantId: currentTenantId() ?? req.tenantId ?? "default" },
-    });
+  const settings = await prisma.librarySetting.upsert({
+    where: { tenantId },
+    create: { ...data, tenantId },
+    update: data,
+  });
   await audit(req, "UPDATE", "LIBRARY_SETTINGS", settings.id);
   res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, ...landingSettings, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
 });

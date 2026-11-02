@@ -1222,7 +1222,8 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await saveSettings(next);
+      const savedSettings = await saveSettings(next);
+      setLibrarySettings(savedSettings);
       setSuccess(t("settingsSaved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save library settings.");

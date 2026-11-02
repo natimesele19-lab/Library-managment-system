@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { api } from "./api";
 import i18n, { applyTextOverrides } from "./i18n";
 
@@ -56,14 +56,21 @@ type SettingsContextValue = {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState(defaultLibrarySettings);
+  const [settings, setSettingsState] = useState(defaultLibrarySettings);
+  const settingsRevision = useRef(0);
+  const setSettings = useCallback<Dispatch<SetStateAction<LibrarySettings>>>((nextSettings) => {
+    settingsRevision.current += 1;
+    setSettingsState(nextSettings);
+  }, []);
   const [language, setCurrentLanguage] = useState(i18n.language);
 
   useEffect(() => {
     let cancelled = false;
+    const revision = settingsRevision.current;
     void api.get<LibrarySettings>("/public/settings").then((loadedSettings) => {
-      if (!cancelled) {
-        setSettings(loadedSettings);
+      if (!cancelled && settingsRevision.current === revision) {
+        settingsRevision.current += 1;
+        setSettingsState(loadedSettings);
         void i18n.changeLanguage(loadedSettings.defaultLanguage);
       }
     }).catch((cause: unknown) => {

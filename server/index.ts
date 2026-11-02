@@ -57,7 +57,7 @@ const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unk
   };
 const resolveInstitutionName = async (storedName: string | null | undefined, tenantId = currentTenantId()): Promise<string> => {
   const existingName = storedName?.trim();
-  if (tenantId && tenantId !== "default" && (!existingName || existingName === "Libra")) {
+  if (tenantId && (!existingName || existingName === "Libra")) {
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
     const institutionName = tenant?.name.trim();
     if (institutionName) {

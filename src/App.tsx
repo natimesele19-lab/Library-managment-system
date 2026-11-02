@@ -783,6 +783,19 @@ function App() {
     return () => { cancelled = true; };
   }, [token, currentUser?.role, activeTenantId, setLibrarySettings]);
 
+  useEffect(() => {
+    if (!token || !currentUser || currentUser.role === "SUPER_ADMIN") return;
+    setApiTenantId(currentUser.tenantId ?? null);
+    let cancelled = false;
+    const endpoint = currentUser.role === "ADMIN" ? "/admin/settings" : "/public/settings";
+    void api.get<LibrarySettings>(endpoint).then((settings) => {
+      if (!cancelled) setLibrarySettings(settings);
+    }).catch((cause: unknown) => {
+      if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load school settings.");
+    });
+    return () => { cancelled = true; };
+  }, [token, currentUser?.id, currentUser?.role, currentUser?.tenantId, setLibrarySettings]);
+
   const loanStatusFilter = page === "circulation" || page === "teacherBorrowing" ? statusFilter : "ALL";
   const load = useCallback(async () => {
     if (!token || !currentUser || currentUser.role === "MEMBER" ||
@@ -940,10 +953,11 @@ function App() {
       setLoginPage(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
-    if (!loginPage) return <LandingPage settings={librarySettings} onLogin={openLogin} />;
+    if (!loginPage) return <LandingPage settings={librarySettings} onLogin={openLogin}
+      darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} />;
     return <Login libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl}
       darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)}
-      onLogin={(value, account) => { setApiTenantId(null); setActiveTenantId(null); window.history.replaceState({}, "", "/"); setLoginPage(false); setToken(value); setCurrentUser(account); }} />;
+      onLogin={(value, account) => { setApiTenantId(account.role === "SUPER_ADMIN" ? null : account.tenantId ?? null); setActiveTenantId(null); window.history.replaceState({}, "", "/"); setLoginPage(false); setToken(value); setCurrentUser(account); }} />;
   }
   if (sessionLoading || !currentUser) return <div className="loading-state">{t("loading")}</div>;
 
@@ -2554,11 +2568,11 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
       </div>
     </section>
     <form className="panel settings-form" onSubmit={save}>
-      <div className="panel-head"><div><div className="panel-title">{t("settings")}</div><div className="panel-subtitle">{t("settingsDescription")}</div></div><ShieldCheck size={16} color="#67957f" /></div>
+      <div className="panel-head"><div>      <div className="panel-title">{t("settings")}</div><div className="panel-subtitle">{t("settingsDescription")}</div></div><ShieldCheck size={16} color="#67957f" /></div>
       <div className="settings-body">
-        <div className="form-grid">
-          <FieldInput label={t("schoolName")} name="school-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
-          <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
+      <div className="form-grid">
+        <FieldInput label={t("schoolName")} name="school-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
+        <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
           <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
         </div>
         <div className="settings-translation-heading"><div><div className="panel-title">{t("interfaceText")}</div><div className="panel-subtitle">{t("interfaceTextHelp")}</div></div>

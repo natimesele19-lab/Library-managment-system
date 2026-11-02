@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ArrowRight, ArrowUpRight, BookOpen, Globe2, Languages, LibraryBig, Mail, Menu, Phone,
-  QrCode, Repeat2, Search, ShieldCheck, Sparkles, X,
+  ArrowRight, ArrowUpRight, BookOpen, Globe2, Languages, LibraryBig, Mail, Menu, Moon, Phone,
+  QrCode, Repeat2, Search, ShieldCheck, Sparkles, Sun, X,
 } from "lucide-react";
 import { api } from "./api";
 import i18n from "./i18n";
@@ -24,7 +24,9 @@ const features = [
   { icon: Repeat2, number: "04", title: "landingFeatureLoans", description: "landingFeatureLoansDetail" },
 ];
 
-export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; onLogin: () => void }) {
+export function LandingPage({ settings, onLogin, darkMode, onToggleTheme }: {
+  settings: LibrarySettings; onLogin: () => void; darkMode: boolean; onToggleTheme: () => void;
+}) {
   const { t } = useTranslation();
   const [books, setBooks] = useState<PublicBook[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -80,12 +82,15 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
         {menuOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
       <nav className={`landing-nav-links ${menuOpen ? "is-open" : ""}`} aria-label={t("mainNavigation")}>
-        <a href="#about" onClick={closeMenu}>{t("about")}</a>
         <a href="#features" onClick={closeMenu}>{t("features")}</a>
+        <a href="#about" onClick={closeMenu}>{t("about")}</a>
         <a href="#catalog" onClick={closeMenu}>{t("catalog")}</a>
         <a href="#contact" onClick={closeMenu}>{t("contact")}</a>
         <button type="button" className="landing-language-toggle" aria-label={t("language")} title={t("language")} onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); closeMenu(); }}>
           <Languages size={14} />{i18n.language === "en" ? t("amharic") : t("english")}
+        </button>
+        <button type="button" className="landing-language-toggle landing-theme-toggle" aria-label={t(darkMode ? "lightMode" : "darkMode")} title={t(darkMode ? "lightMode" : "darkMode")} onClick={onToggleTheme}>
+          {darkMode ? <Sun size={14} /> : <Moon size={14} />}<span>{t(darkMode ? "lightMode" : "darkMode")}</span>
         </button>
         <button type="button" className="landing-nav-login" onClick={() => { closeMenu(); onLogin(); }}>{t("goToLogin")} <ArrowUpRight size={15} /></button>
       </nav>

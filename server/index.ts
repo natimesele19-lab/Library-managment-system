@@ -348,12 +348,18 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   }
   const isPlatformAdmin = req.user?.role === "SUPER_ADMIN";
   const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
-  const validLibraryName = typeof libraryName === "string" && Boolean(libraryName.trim()) && libraryName.trim().length <= 80;
-  if ((isPlatformAdmin && !validLibraryName) || (libraryName !== undefined && !validLibraryName)) {
-    res.status(400).json({ error: "School name must contain 1–80 characters." });
+  const canUpdatePortalName = isPlatformAdmin && req.path === "/api/platform/settings";
+  const tenantId = currentTenantId() ?? req.tenantId;
+  const canUpdateSchoolDisplayName = Boolean(tenantId && tenantId !== "default") &&
+    (req.user?.role === "ADMIN" || isPlatformAdmin);
+  const canUpdateLibraryName = canUpdatePortalName || canUpdateSchoolDisplayName;
+  if ((canUpdatePortalName && typeof libraryName !== "string") ||
+      (libraryName !== undefined && canUpdateLibraryName &&
+        (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80))) {
+    res.status(400).json({ error: "School or portal name must contain 1–80 characters." });
     return;
   }
-  if (isPlatformAdmin && (typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80)) {
+  if (canUpdatePortalName && (typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80)) {
     res.status(400).json({ error: "Application title must contain 1–80 characters." });
     return;
   }
@@ -431,8 +437,8 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     else delete amharicText.footerNotice;
   }
   const data = {
-    libraryName: typeof libraryName === "string" ? libraryName.trim() : current?.libraryName ?? "Libra",
-    appTitle: isPlatformAdmin ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
+    libraryName: canUpdateLibraryName && typeof libraryName === "string" ? libraryName.trim() : current?.libraryName ?? "Libra",
+    appTitle: canUpdatePortalName ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
     defaultLanguage,
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),
     amharicText: JSON.stringify(amharicText), ...landingSettings,

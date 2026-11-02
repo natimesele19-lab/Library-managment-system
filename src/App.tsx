@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Activity, ArrowDownToLine, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
+  Activity, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
   Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
@@ -309,14 +309,15 @@ function Login({ onLogin, libraryName, logoUrl, darkMode, onToggleTheme }: {
   }
 
   return <main className="login-wrap">
+    <div className="login-controls">
+      <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
+      <button type="button" className="lang-button" aria-label={t("language")} title={t("language")} onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); }}>
+        <Languages size={14} />{i18n.language === "en" ? t("amharic") : t("english")}
+      </button>
+    </div>
     <div className="login-layout">
       <section className="login-form-panel" aria-labelledby="login-form-title">
-        <div className="login-controls">
-          <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
-          <button type="button" className="lang-button" aria-label={t("language")} title={t("language")} onClick={() => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); }}>
-            <Languages size={14} />{i18n.language === "en" ? t("amharic") : t("english")}
-          </button>
-        </div>
+        <a className="login-back-link" href="/"><ArrowLeft size={14} />{t("backToLanding")}</a>
         <form className="login-card" onSubmit={submit}>
           <div className="login-form-mark"><span className="login-logo">{logoUrl ? <img src={secureFileUrl(logoUrl)} alt="" /> : <LibraryBig size={19} />}</span><span><strong>{libraryName}</strong><small>{t("signInAs")}</small></span></div>
           <h2 id="login-form-title" className="page-title">{t("signIn")}</h2>
@@ -648,7 +649,7 @@ function PlatformAdminDashboard({ settings, account, onAccountUpdate, onSaveSett
             <div className="platform-fields">
               {([
                 ["libraryName", "platformName"], ["appTitle", "applicationTitle"], ["landingTitle", "heroTitle"],
-                ["heroSubtitle", "heroSubtitle"], ["aboutTitle", "aboutSectionTitle"], ["featuresTitle", "featuresSectionTitle"],
+                ["heroSubtitle", "heroSubtitleLabel"], ["aboutTitle", "aboutSectionTitle"], ["featuresTitle", "featuresSectionTitle"],
                 ["catalogTitle", "catalogSectionTitle"], ["contactTitle", "contactSectionTitle"], ["contactPhone", "contactPhone"],
                 ["contactEmail", "contactEmail"], ["footerCopyright", "footerCopyright"], ["announcement", "announcementBanner"],
               ] as const).map(([key, label]) => <label className="field" key={key}><span>{t(label)}</span>
@@ -2556,6 +2557,7 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
       <div className="panel-head"><div><div className="panel-title">{t("settings")}</div><div className="panel-subtitle">{t("settingsDescription")}</div></div><ShieldCheck size={16} color="#67957f" /></div>
       <div className="settings-body">
         <div className="form-grid">
+          <FieldInput label={t("schoolName")} name="school-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
           <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
           <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
         </div>

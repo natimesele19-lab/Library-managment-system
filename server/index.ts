@@ -348,9 +348,13 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   }
   const isPlatformAdmin = req.user?.role === "SUPER_ADMIN";
   const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
-  if (isPlatformAdmin && (typeof libraryName !== "string" || !libraryName.trim() || libraryName.trim().length > 80 ||
-      typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80)) {
-    res.status(400).json({ error: "Library name and app title must each contain 1–80 characters." });
+  const validLibraryName = typeof libraryName === "string" && Boolean(libraryName.trim()) && libraryName.trim().length <= 80;
+  if ((isPlatformAdmin && !validLibraryName) || (libraryName !== undefined && !validLibraryName)) {
+    res.status(400).json({ error: "School name must contain 1–80 characters." });
+    return;
+  }
+  if (isPlatformAdmin && (typeof appTitle !== "string" || !appTitle.trim() || appTitle.trim().length > 80)) {
+    res.status(400).json({ error: "Application title must contain 1–80 characters." });
     return;
   }
   const current = await prisma.librarySetting.findFirst();
@@ -427,7 +431,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     else delete amharicText.footerNotice;
   }
   const data = {
-    libraryName: isPlatformAdmin ? (libraryName as string).trim() : current?.libraryName ?? "Libra",
+    libraryName: typeof libraryName === "string" ? libraryName.trim() : current?.libraryName ?? "Libra",
     appTitle: isPlatformAdmin ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
     defaultLanguage,
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),

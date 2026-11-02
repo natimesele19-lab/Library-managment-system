@@ -62,9 +62,15 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
   }, []);
 
   const closeMenu = () => setMenuOpen(false);
+  const localizeSetting = (key: string, value: string, defaultValue: string) => {
+    if (value === defaultValue) return t(key);
+    return i18n.language === "am"
+      ? settings.amharicText[key] || value
+      : settings.englishText[key] || value;
+  };
 
   return <main className="landing-page">
-    {settings.announcement && <div className="landing-announcement"><Sparkles size={14} /><span>{settings.announcement}</span></div>}
+    {settings.announcement && <div className="landing-announcement"><Sparkles size={14} /><span>{localizeSetting("announcement", settings.announcement, "")}</span></div>}
     <header className="landing-nav">
       <a className="landing-brand" href="#home" aria-label={t("landingHome", { name: settings.libraryName })} onClick={closeMenu}>
         <span className="landing-brand-mark">{settings.logoUrl ? <img src={settings.logoUrl} alt="" /> : <LibraryBig size={21} />}</span>
@@ -91,8 +97,8 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
       <div className="landing-hero-inner">
         <div className="landing-hero-copy landing-reveal">
           <div className="landing-eyebrow"><span className="landing-eyebrow-dot" /> {t("landingHeroEyebrow")}</div>
-          <h1>{settings.landingTitle}</h1>
-          <p className="landing-hero-subtitle">{settings.heroSubtitle}</p>
+          <h1>{localizeSetting("landingTitle", settings.landingTitle, "A brighter way to discover your next favorite book.")}</h1>
+          <p className="landing-hero-subtitle">{localizeSetting("heroSubtitle", settings.heroSubtitle, "One welcoming place to explore, borrow, and manage your library.")}</p>
           <div className="landing-hero-actions">
             <button type="button" className="landing-button landing-button-primary" onClick={onLogin}>{t("getStarted")} <ArrowRight size={17} /></button>
             <a className="landing-button landing-button-secondary" href="#catalog">{t("exploreCatalog")} <BookOpen size={16} /></a>
@@ -117,8 +123,8 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
     <section className="landing-about landing-section" id="about">
       <div className="landing-about-decoration" aria-hidden="true"><span>{t("library")}</span><span>{t("landingOpenToAll")}</span></div>
       <div className="landing-about-inner landing-reveal">
-        <div><p className="landing-eyebrow">{t("landingAboutEyebrow")}</p><h2>{settings.aboutTitle}</h2></div>
-        <div className="landing-about-copy"><p>{settings.aboutText}</p><p>{t("landingAboutDetail")}</p><a href="#features" className="landing-text-link">{t("seeWhatYouCanDo")} <ArrowRight size={15} /></a></div>
+        <div><p className="landing-eyebrow">{t("landingAboutEyebrow")}</p><h2>{localizeSetting("aboutTitle", settings.aboutTitle, "A library that moves with you.")}</h2></div>
+        <div className="landing-about-copy"><p>{localizeSetting("aboutText", settings.aboutText, "Bring your collection, readers, and everyday library work together in one thoughtful digital space.")}</p><p>{t("landingAboutDetail")}</p><a href="#features" className="landing-text-link">{t("seeWhatYouCanDo")} <ArrowRight size={15} /></a></div>
       </div>
       <div className="landing-values">
         <div><span className="landing-value-icon"><Globe2 size={18} /></span><span><strong>{t("landingValueOpen")}</strong><small>{t("landingValueOpenDetail")}</small></span></div>
@@ -128,7 +134,7 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
     </section>
 
     <section className="landing-features landing-section" id="features">
-      <div className="landing-section-heading landing-reveal"><div><p className="landing-eyebrow">{t("landingFeaturesEyebrow")}</p><h2>{settings.featuresTitle}</h2></div><p>{t("landingFeaturesDetail")}</p></div>
+      <div className="landing-section-heading landing-reveal"><div><p className="landing-eyebrow">{t("landingFeaturesEyebrow")}</p><h2>{localizeSetting("featuresTitle", settings.featuresTitle, "Everything your library needs.")}</h2></div><p>{t("landingFeaturesDetail")}</p></div>
       <div className="landing-feature-grid">
         {features.map(({ icon: Icon, number, title, description }, index) => <article className="landing-feature-card landing-reveal" key={number} style={{ transitionDelay: `${index * 75}ms` }}>
           <div className="landing-feature-card-top"><span className="landing-feature-icon"><Icon size={20} /></span><span>{number}</span></div>
@@ -138,7 +144,7 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
     </section>
 
     <section className="landing-catalog landing-section" id="catalog">
-      <div className="landing-catalog-heading landing-reveal"><div><p className="landing-eyebrow">{t("landingCatalogEyebrow")}</p><h2>{settings.catalogTitle}</h2><p>{t("landingCatalogDetail")}</p></div><span className="landing-catalog-stamp"><BookOpen size={17} /> {t("openShelves")}</span></div>
+      <div className="landing-catalog-heading landing-reveal"><div><p className="landing-eyebrow">{t("landingCatalogEyebrow")}</p><h2>{localizeSetting("catalogTitle", settings.catalogTitle, "Find your next read.")}</h2><p>{t("landingCatalogDetail")}</p></div><span className="landing-catalog-stamp"><BookOpen size={17} /> {t("openShelves")}</span></div>
       {catalogLoading ? <div className="landing-catalog-state" role="status">{t("findingBooks")}</div>
         : catalogError ? <div className="landing-catalog-state landing-catalog-error" role="alert">{catalogError}</div>
           : books.length ? <div className="landing-catalog-grid">{books.map((book, index) => <article className={`landing-catalog-card landing-cover-${index % 4}`} key={book.id}>
@@ -151,7 +157,7 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
 
     <section className="landing-contact landing-section" id="contact">
       <div className="landing-contact-card landing-reveal">
-        <div className="landing-contact-copy"><p className="landing-eyebrow">{t("landingContactEyebrow")}</p><h2>{settings.contactTitle}</h2><p>{t("landingContactDetail")}</p></div>
+        <div className="landing-contact-copy"><p className="landing-eyebrow">{t("landingContactEyebrow")}</p><h2>{localizeSetting("contactTitle", settings.contactTitle, "Let’s stay in touch.")}</h2><p>{t("landingContactDetail")}</p></div>
         <div className="landing-contact-links">
           {settings.contactEmail && <a href={`mailto:${settings.contactEmail}`}><span><Mail size={18} /></span><span><small>{t("emailUs")}</small><strong>{settings.contactEmail}</strong></span><ArrowUpRight size={15} /></a>}
           {settings.contactPhone && <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`}><span><Phone size={18} /></span><span><small>{t("giveUsCall")}</small><strong>{settings.contactPhone}</strong></span><ArrowUpRight size={15} /></a>}
@@ -164,7 +170,7 @@ export function LandingPage({ settings, onLogin }: { settings: LibrarySettings; 
     <footer className="landing-footer">
       <a className="landing-brand" href="#home"><span className="landing-brand-mark">{settings.logoUrl ? <img src={settings.logoUrl} alt="" /> : <LibraryBig size={21} />}</span><span><strong>{settings.libraryName}</strong><small>{t("landingBrandTagline")}</small></span></a>
       <p>{t("landingFooterDescription")}</p>
-      <span className="landing-copyright">{settings.footerCopyright}</span>
+      <span className="landing-copyright">{localizeSetting("footerCopyright", settings.footerCopyright, "MADE BY NATNAEL MESELE")}</span>
     </footer>
   </main>;
 }

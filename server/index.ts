@@ -55,6 +55,22 @@ const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unk
       });
     });
   };
+const resolveInstitutionName = async (storedName: string | null | undefined, tenantId = currentTenantId()): Promise<string> => {
+  const existingName = storedName?.trim();
+  if (tenantId && tenantId !== "default" && (!existingName || existingName === "Libra")) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+    const institutionName = tenant?.name.trim();
+    if (institutionName) {
+      await prisma.librarySetting.upsert({
+        where: { tenantId },
+        create: { tenantId, libraryName: institutionName },
+        update: { libraryName: institutionName },
+      });
+      return institutionName;
+    }
+  }
+  return existingName || "Libra";
+};
 const platformRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
   asyncRoute((req, res) => runWithTenant(null, () => handler(req, res)));
 const tenantRoute = (tenantId: string, handler: RequestHandler): RequestHandler =>
@@ -89,9 +105,11 @@ app.use("/api/public", (req: Request, res: Response, next: NextFunction) => {
   }).catch(next);
 });
 app.get("/api/public/settings", settingsRoute(async (_req, res) => {
-  const settings = await prisma.librarySetting.findFirst();
+  const tenantId = currentTenantId() ?? "default";
+  const settings = await prisma.librarySetting.findUnique({ where: { tenantId } });
+  const libraryName = await resolveInstitutionName(settings?.libraryName, tenantId);
   res.json({
-    libraryName: settings?.libraryName || "Libra",
+    libraryName,
     appTitle: settings?.appTitle || "Library Management",
     logoUrl: settings?.logoUrl || "",
     landingTitle: settings?.landingTitle || "A brighter way to discover your next favorite book.",
@@ -318,9 +336,11 @@ app.put("/api/platform/profile/password", requirePlatformAdmin, asyncRoute(async
 }));
 
 const getAdminSettings = settingsRoute(async (_req, res) => {
-  const settings = await prisma.librarySetting.findFirst();
+  const tenantId = currentTenantId() ?? "default";
+  const settings = await prisma.librarySetting.findUnique({ where: { tenantId } });
+  const libraryName = await resolveInstitutionName(settings?.libraryName, tenantId);
   res.json({
-    libraryName: settings?.libraryName || "Libra",
+    libraryName,
     appTitle: settings?.appTitle || "Library Management",
     logoUrl: settings?.logoUrl || "",
     landingTitle: settings?.landingTitle || "A brighter way to discover your next favorite book.",
@@ -364,6 +384,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     return;
   }
   const current = await prisma.librarySetting.findUnique({ where: { tenantId } });
+  const currentInstitutionName = await resolveInstitutionName(current?.libraryName, tenantId);
   const defaultLanguage = req.body.defaultLanguage ?? current?.defaultLanguage ?? "en";
   if (defaultLanguage !== "en" && defaultLanguage !== "am") {
     res.status(400).json({ error: "Default language must be either 'en' or 'am'." });
@@ -440,7 +461,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     else delete amharicText.footerNotice;
   }
   const data = {
-    libraryName: canUpdateLibraryName && typeof libraryName === "string" ? libraryName.trim() : current?.libraryName ?? "Libra",
+    libraryName: canUpdateLibraryName && typeof libraryName === "string" ? libraryName.trim() : currentInstitutionName,
     appTitle: canUpdatePortalName ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
     defaultLanguage,
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),

@@ -335,8 +335,8 @@ app.put("/api/platform/profile/password", requirePlatformAdmin, asyncRoute(async
   res.json({ message: "Password updated successfully." });
 }));
 
-const getAdminSettings = settingsRoute(async (_req, res) => {
-  const tenantId = currentTenantId() ?? "default";
+const getAdminSettings = settingsRoute(async (req, res) => {
+  const tenantId = req.tenantId ?? currentTenantId() ?? "default";
   const settings = await prisma.librarySetting.findUnique({ where: { tenantId } });
   const libraryName = await resolveInstitutionName(settings?.libraryName, tenantId);
   res.json({

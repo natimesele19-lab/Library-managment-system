@@ -39,6 +39,8 @@ const allowedOrigins = new Set([
   ...(process.env.CLIENT_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean),
 ]);
 const defaultFinePerDay = Number(process.env.FINE_PER_DAY || 5);
+const platformName = "Libra";
+const defaultInstitutionName = "Yeka D/M/K/Mihret School Library";
 const asyncRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
   (req: AuthRequest, res: Response, next: NextFunction) => { void handler(req, res).catch(next); };
 const settingsRoute = (handler: (req: AuthRequest, res: Response) => Promise<unknown>) =>
@@ -59,7 +61,12 @@ const resolveInstitutionName = async (storedName: string | null | undefined, ten
   const existingName = storedName?.trim();
   if (tenantId && (!existingName || existingName === "Libra")) {
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-    const institutionName = tenant?.name.trim();
+    const institutionName = tenantId === "default"
+      ? defaultInstitutionName
+      : tenant?.name.trim();
+    if (tenantId === "default" && tenant && tenant.name !== institutionName) {
+      await prisma.tenant.update({ where: { id: tenantId }, data: { name: institutionName } });
+    }
     if (institutionName) {
       await prisma.librarySetting.upsert({
         where: { tenantId },
@@ -338,7 +345,9 @@ app.put("/api/platform/profile/password", requirePlatformAdmin, asyncRoute(async
 const getAdminSettings = settingsRoute(async (req, res) => {
   const tenantId = req.tenantId ?? currentTenantId() ?? "default";
   const settings = await prisma.librarySetting.findUnique({ where: { tenantId } });
-  const libraryName = await resolveInstitutionName(settings?.libraryName, tenantId);
+  const libraryName = req.path === "/api/platform/settings"
+    ? platformName
+    : await resolveInstitutionName(settings?.libraryName, tenantId);
   res.json({
     libraryName,
     appTitle: settings?.appTitle || "Library Management",
@@ -370,7 +379,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   const { libraryName, appTitle, logoUrl: requestedLogoUrl, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; logoUrl?: unknown; finePerDay?: unknown };
   const canUpdatePortalName = isPlatformAdmin && req.path === "/api/platform/settings";
   const tenantId = req.tenantId ?? currentTenantId() ?? "default";
-  const canUpdateSchoolDisplayName = Boolean(tenantId && tenantId !== "default") &&
+  const canUpdateSchoolDisplayName = req.path !== "/api/platform/settings" && Boolean(tenantId) &&
     (req.user?.role === "ADMIN" || isPlatformAdmin);
   const canUpdateLibraryName = canUpdatePortalName || canUpdateSchoolDisplayName;
   if ((canUpdatePortalName && typeof libraryName !== "string") ||
@@ -461,7 +470,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     else delete amharicText.footerNotice;
   }
   const data = {
-    libraryName: canUpdateLibraryName && typeof libraryName === "string" ? libraryName.trim() : currentInstitutionName,
+    libraryName: canUpdateSchoolDisplayName && typeof libraryName === "string" ? libraryName.trim() : currentInstitutionName,
     appTitle: canUpdatePortalName ? (appTitle as string).trim() : current?.appTitle ?? "Library Management",
     defaultLanguage,
     finePerDay: currentFinePerDay, englishText: JSON.stringify(englishText),
@@ -473,7 +482,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     update: data,
   });
   await audit(req, "UPDATE", "LIBRARY_SETTINGS", settings.id);
-  res.json({ libraryName: settings.libraryName, appTitle: settings.appTitle, ...landingSettings, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
+  res.json({ libraryName: canUpdatePortalName ? platformName : settings.libraryName, appTitle: settings.appTitle, ...landingSettings, defaultLanguage: settings.defaultLanguage, finePerDay: settings.finePerDay, englishText, amharicText });
 });
 
 app.route("/api/admin/settings")

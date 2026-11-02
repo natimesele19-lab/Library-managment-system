@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import i18n from "./i18n";
-import type { LibrarySettings } from "./SettingsContext";
+import { PLATFORM_NAME, type LibrarySettings } from "./SettingsContext";
 
 type PublicBook = {
   id: string;
@@ -74,9 +74,9 @@ export function LandingPage({ settings, onLogin, darkMode, onToggleTheme }: {
   return <main className="landing-page">
     {settings.announcement && <div className="landing-announcement"><Sparkles size={14} /><span>{localizeSetting("announcement", settings.announcement, "")}</span></div>}
     <header className="landing-nav">
-      <a className="landing-brand" href="#home" aria-label={t("landingHome", { name: settings.libraryName })} onClick={closeMenu}>
+      <a className="landing-brand" href="#home" aria-label={t("landingHome", { name: PLATFORM_NAME })} onClick={closeMenu}>
         <span className="landing-brand-mark">{settings.logoUrl ? <img src={settings.logoUrl} alt="" /> : <LibraryBig size={21} />}</span>
-        <span><strong>{settings.libraryName}</strong><small>{t("landingBrandTagline")}</small></span>
+        <span><strong>{PLATFORM_NAME}</strong><small>{t("landingBrandTagline")}</small></span>
       </a>
       <button className="landing-menu-toggle" type="button" aria-label={menuOpen ? t("closeNavigation") : t("openNavigation")} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
         {menuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -173,7 +173,7 @@ export function LandingPage({ settings, onLogin, darkMode, onToggleTheme }: {
     </section>
 
     <footer className="landing-footer">
-      <a className="landing-brand" href="#home"><span className="landing-brand-mark">{settings.logoUrl ? <img src={settings.logoUrl} alt="" /> : <LibraryBig size={21} />}</span><span><strong>{settings.libraryName}</strong><small>{t("landingBrandTagline")}</small></span></a>
+      <a className="landing-brand" href="#home"><span className="landing-brand-mark">{settings.logoUrl ? <img src={settings.logoUrl} alt="" /> : <LibraryBig size={21} />}</span><span><strong>{PLATFORM_NAME}</strong><small>{t("landingBrandTagline")}</small></span></a>
       <p>{t("landingFooterDescription")}</p>
       <span className="landing-copyright">{localizeSetting("footerCopyright", settings.footerCopyright, "MADE BY NATNAEL MESELE")}</span>
     </footer>

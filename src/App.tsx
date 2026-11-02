@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { api, download, request, setApiTenantId, type ApiRecord } from "./api";
 import i18n from "./i18n";
-import { useSettings, type LibrarySettings } from "./SettingsContext";
+import { PLATFORM_NAME, useSettings, type LibrarySettings } from "./SettingsContext";
 import { CameraScanner } from "./CameraScanner";
 import { BorrowerLookup } from "./BorrowerLookup";
 import { IDCard, type IDCardPatron } from "./IDCard";
@@ -281,8 +281,8 @@ function InstallAppControl({ t }: { t: (key: string) => string }) {
   </div>;
 }
 
-function Login({ onLogin, libraryName, logoUrl, darkMode, onToggleTheme }: {
-  onLogin: (token: string, user: Account) => void; libraryName: string; logoUrl: string;
+function Login({ onLogin, logoUrl, darkMode, onToggleTheme }: {
+  onLogin: (token: string, user: Account) => void; logoUrl: string;
   darkMode: boolean; onToggleTheme: () => void;
 }) {
   const { t } = useTranslation();
@@ -319,7 +319,7 @@ function Login({ onLogin, libraryName, logoUrl, darkMode, onToggleTheme }: {
       <section className="login-form-panel" aria-labelledby="login-form-title">
         <a className="login-back-link" href="/"><ArrowLeft size={14} />{t("backToLanding")}</a>
         <form className="login-card" onSubmit={submit}>
-          <div className="login-form-mark"><span className="login-logo">{logoUrl ? <img src={secureFileUrl(logoUrl)} alt="" /> : <LibraryBig size={19} />}</span><span><strong>{libraryName}</strong><small>{t("signInAs")}</small></span></div>
+          <div className="login-form-mark"><span className="login-logo">{logoUrl ? <img src={secureFileUrl(logoUrl)} alt="" /> : <LibraryBig size={19} />}</span><span><strong>{PLATFORM_NAME}</strong><small>{t("signInAs")}</small></span></div>
           <h2 id="login-form-title" className="page-title">{t("signIn")}</h2>
           <div className="login-modes" role="tablist" aria-label={t("signInAs")}>
             <button type="button" role="tab" aria-selected={mode === "staff"} className={`login-mode ${mode === "staff" ? "active" : ""}`} onClick={() => { setMode("staff"); setIdentifier(""); setError(""); }}>{t("staffLogin")}</button>
@@ -539,7 +539,7 @@ function PlatformAdminDashboard({ settings, account, onAccountUpdate, onSaveSett
     <header className="platform-topbar">
       <a className="platform-brand" href="/" aria-label={t("platformHome")}>
         <span className="platform-brand-mark">{settingsDraft.logoUrl ? <img src={secureFileUrl(settingsDraft.logoUrl)} alt="" /> : <Building2 size={20} />}</span>
-        <span><strong>{settingsDraft.libraryName}</strong><small>{t("platformControl")}</small></span>
+        <span><strong>{PLATFORM_NAME}</strong><small>{t("platformControl")}</small></span>
       </a>
       <div className="platform-top-actions">
         <span className="platform-owner-badge"><ShieldCheck size={14} />{t("platformOwner")}</span>
@@ -654,7 +654,7 @@ function PlatformAdminDashboard({ settings, account, onAccountUpdate, onSaveSett
                 ["contactEmail", "contactEmail"], ["footerCopyright", "footerCopyright"], ["announcement", "announcementBanner"],
               ] as const).map(([key, label]) => <label className="field" key={key}><span>{t(label)}</span>
                 {["heroSubtitle", "announcement"].includes(key) ? <textarea rows={key === "announcement" ? 2 : 3} value={settingsDraft[key]} onChange={(event) => updateSetting(key, event.target.value)} /> :
-                  <input type={key === "contactEmail" ? "email" : "text"} value={settingsDraft[key]} onChange={(event) => updateSetting(key, event.target.value)} />}
+                  <input type={key === "contactEmail" ? "email" : "text"} value={key === "libraryName" ? PLATFORM_NAME : settingsDraft[key]} disabled={key === "libraryName"} onChange={(event) => updateSetting(key, event.target.value)} />}
               </label>)}
               <label className="field platform-field-wide"><span>{t("aboutSectionText")}</span><textarea rows={3} value={settingsDraft.aboutText} onChange={(event) => updateSetting("aboutText", event.target.value)} /></label>
             </div>
@@ -722,6 +722,13 @@ function App() {
   const [success, setSuccess] = useState("");
   const [scannerMode, setScannerMode] = useState<"issue" | "return" | null>(null);
   const loadSequence = useRef(0);
+
+  useEffect(() => {
+    const tenantAdminActive = Boolean(token && currentUser && (
+      currentUser.role !== "SUPER_ADMIN" || activeTenantId
+    ));
+    document.title = `${tenantAdminActive ? librarySettings.libraryName : PLATFORM_NAME} | ${librarySettings.appTitle}`;
+  }, [activeTenantId, currentUser, librarySettings.appTitle, librarySettings.libraryName, token]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -955,7 +962,7 @@ function App() {
     };
     if (!loginPage) return <LandingPage settings={librarySettings} onLogin={openLogin}
       darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)} />;
-    return <Login libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl}
+    return <Login logoUrl={librarySettings.logoUrl}
       darkMode={darkMode} onToggleTheme={() => setDarkMode((enabled) => !enabled)}
       onLogin={(value, account) => { setApiTenantId(account.role === "SUPER_ADMIN" ? null : account.tenantId ?? null); setActiveTenantId(null); window.history.replaceState({}, "", "/"); setLoginPage(false); setToken(value); setCurrentUser(account); }} />;
   }

@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { api } from "./api";
 import i18n, { applyTextOverrides } from "./i18n";
 
+export const PLATFORM_NAME = "Libra";
+
 export type LibrarySettings = {
   libraryName: string;
   appTitle: string;
@@ -24,7 +26,7 @@ export type LibrarySettings = {
 };
 
 const defaultLibrarySettings: LibrarySettings = {
-  libraryName: "Libra",
+  libraryName: PLATFORM_NAME,
   appTitle: "Library Management",
   logoUrl: "",
   landingTitle: "A brighter way to discover your next favorite book.",
@@ -81,9 +83,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     applyTextOverrides(settings.englishText, settings.amharicText);
-    document.title = settings.libraryName
-      ? `${settings.libraryName} | ${settings.appTitle}`
-      : settings.appTitle;
   }, [settings]);
 
   useEffect(() => {

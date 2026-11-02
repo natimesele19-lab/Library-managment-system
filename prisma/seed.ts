@@ -32,12 +32,12 @@ async function main() {
   await prisma.tenant.upsert({
     where: { id: "default" },
     update: {},
-    create: { id: "default", slug: "default", name: "Libra" },
+    create: { id: "default", slug: "default", name: "Yeka D/M/K/Mihret School Library" },
   });
   await prisma.librarySetting.upsert({
     where: { tenantId: "default" },
     update: {},
-    create: { tenantId: "default", libraryName: "Libra", appTitle: "Library Management" },
+    create: { tenantId: "default", libraryName: "Yeka D/M/K/Mihret School Library", appTitle: "Library Management" },
   });
   const passwordHash = await bcrypt.hash(password, 12);
   await prisma.user.upsert({

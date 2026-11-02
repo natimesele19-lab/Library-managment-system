@@ -81,7 +81,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     applyTextOverrides(settings.englishText, settings.amharicText);
-    document.title = settings.appTitle;
+    document.title = settings.libraryName
+      ? `${settings.libraryName} | ${settings.appTitle}`
+      : settings.appTitle;
   }, [settings]);
 
   useEffect(() => {

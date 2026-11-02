@@ -1629,19 +1629,21 @@ function App() {
         <div className="page-transition">
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} />}
-        {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery} libraryName={librarySettings.libraryName} t={t} />}
+        {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery}
+          libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} t={t} />}
         {page === "examSheets" && <ExamSheetsPage records={visibleRecords} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t} onOpenFile={previewMedia}
           onCreate={startCreate} onEdit={startEdit} onDelete={deleteRecord} />}
         {page === "reservations" && <ReservationsPage records={visibleRecords as StaffReservation[]} loading={loading} query={query} setQuery={setQuery} busy={busy} libraryName={librarySettings.libraryName} t={t}
           onUpdate={(reservation, status) => void updateReservation(reservation, status)} onDelete={(reservation) => void deleteReservation(reservation)}
           onClearHistory={() => void clearReservationHistory()} />}
         {page === "settings" && <SettingsPage fields={customFields} loading={loading} t={t} settings={librarySettings} libraryName={librarySettings.libraryName} busy={busy} onSave={saveLibrarySettings}
-          onChangeLanguage={setLanguage} onChangePassword={changePassword}
+          onChangeLanguage={setLanguage} onChangePassword={changePassword} onUploadLogo={uploadLibraryLogo}
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
         {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && page !== "examSheets" && <DataPage
-          page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} libraryName={librarySettings.libraryName}
+          page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+          libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
@@ -2073,10 +2075,10 @@ function PortalMediaSection({ media, loading, onOpen, t, viewMode = "list" }: {
 function Dashboard({ stats, loading, libraryName, t, onNavigate }: { stats: Stats | null; loading: boolean; libraryName: string; t: (key: string) => string; onNavigate: (page: Page) => void }) {
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12
-    ? "Good morning, Admin"
+    ? t("goodMorning")
     : currentHour < 18
-      ? "Good afternoon, Admin"
-      : "Good evening, Admin";
+      ? t("goodAfternoon")
+      : t("goodEvening");
   const rawChartData = stats?.borrowingTrends?.length ? stats.borrowingTrends : monthNames.map((month) => ({ month, borrowed: 0, returned: 0 }));
   const chartData = localizeMonths(rawChartData);
   const categories = stats?.categories || [];
@@ -2089,7 +2091,7 @@ function Dashboard({ stats, loading, libraryName, t, onNavigate }: { stats: Stat
     { label: t("overdue"), value: stats?.overdueBooks ?? "—", icon: Clock3, tint: "#f9ebea", color: "#bb625b" },
   ];
   return <>
-    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("overview")}</div><h1 className="page-title">{greeting}</h1><p className="page-description">{t("welcomeSub")}</p></div>
+    <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("overview")}</div><h1 className="page-title">{greeting}, {libraryName}</h1><p className="page-description">{t("welcomeSub")}</p></div>
       <div className="heading-actions"><button className="button" onClick={() => onNavigate("reports")}><CalendarDays size={13} /> {t("thisMonth")} <ChevronDown size={12} /></button><button className="button button-primary" onClick={() => onNavigate("circulation")}><Plus size={14} /> {t("issueBooks")}</button></div>
     </div>
     <div className="stats-grid">{cards.map(({ label, value, icon: Icon, tint, color }) => <div className="stat-card" key={label}>
@@ -2171,12 +2173,13 @@ function ReservationsPage({ records, loading, query, setQuery, busy, libraryName
   </>;
 }
 
-function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
+function IDCardsPage({ records, loading, query, setQuery, libraryName, logoUrl, t }: {
   records: Row[];
   loading: boolean;
   query: string;
   setQuery: (value: string) => void;
   libraryName: string;
+  logoUrl: string;
   t: (key: string) => string;
 }) {
   const [printTarget, setPrintTarget] = useState<string | "all" | "selected" | null>(null);
@@ -2252,7 +2255,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
           (printTarget === "all" && isTypeVisible) ||
           (printTarget === "selected" && selectedIds.includes(record.id));
         return <article className="id-card-print-item" data-filtered={isTypeVisible ? "true" : "false"} data-printing={isPrinting ? "true" : undefined} key={record.id}>
-          <IDCard patron={patron} libraryName={libraryName} t={t} />
+          <IDCard patron={patron} institutionName={libraryName} logoUrl={logoUrl} t={t} />
           <div className="id-card-item-actions">
             <label className="id-card-select">
               <input type="checkbox" aria-label={`${t("selectIdCard")} ${patron.name}`} checked={selectedIds.includes(record.id)} onChange={() => {
@@ -2271,10 +2274,11 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, t }: {
   </div>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, t }: {
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, logoUrl, t }: {
   page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
   libraryName: string;
+  logoUrl: string;
   onCreate: (patron?: Row) => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
   onReturn: (record: Row) => Promise<void>; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
@@ -2469,7 +2473,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
     {idCardPatron && <div className="modal-backdrop id-card-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIdCardPatron(null); }}>
       <div className="modal id-card-modal" role="dialog" aria-modal="true" aria-label={t("generateIdCard")}>
         <div className="modal-head id-card-controls"><div className="modal-title">{t("generateIdCard")}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setIdCardPatron(null)}><X size={17} /></button></div>
-        <IDCard patron={idCardPatron} libraryName={libraryName} t={t} />
+        <IDCard patron={idCardPatron} institutionName={libraryName} logoUrl={logoUrl} t={t} />
         <div className="modal-actions id-card-controls"><button className="button" onClick={() => setIdCardPatron(null)}>{t("cancel")}</button><button className="button button-primary" onClick={() => window.print()}>{t("printIdCard")}</button></div>
       </div>
     </div>}
@@ -2492,13 +2496,14 @@ function Reports({ stats, loading, libraryName, t }: { stats: Stats | null; load
   </>;
 }
 
-function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword }: {
+function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave, onAdd, onEdit, onRemove, onChangeLanguage, onChangePassword, onUploadLogo }: {
   fields: FormField[]; loading: boolean; t: (key: string) => string; settings: LibrarySettings; busy: boolean;
   libraryName: string;
   onSave: (settings: LibrarySettings) => Promise<void>; onAdd: () => void;
   onEdit: (field: FormField) => void; onRemove: (id: string) => void;
   onChangeLanguage: (language: "en" | "am") => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  onUploadLogo: (file: File) => Promise<string>;
 }) {
   const [draft, setDraft] = useState(settings);
   const [translations, setTranslations] = useState<{ key: string; english: string; amharic: string }[]>([]);
@@ -2507,6 +2512,7 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [logoUploadError, setLogoUploadError] = useState("");
   useEffect(() => {
     setDraft(settings);
     const keys = new Set([...Object.keys(settings.englishText), ...Object.keys(settings.amharicText)]);
@@ -2560,11 +2566,24 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
     }
   }
 
+  async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setLogoUploadError("");
+    try {
+      const logoUrl = await onUploadLogo(file);
+      setDraft((current) => ({ ...current, logoUrl }));
+    } catch (error) {
+      setLogoUploadError(error instanceof Error ? error.message : t("logoUploadError"));
+    }
+  }
+
   return <>
     <section className="panel settings-form" aria-labelledby="admin-settings-welcome">
       <div className="settings-body">
         <div className="eyebrow">{libraryName} · {t("adminSettings")}</div>
-        <h1 id="admin-settings-welcome" className="page-title">{t("welcome")}</h1>
+        <h1 id="admin-settings-welcome" className="page-title">{t("welcome")} {libraryName}</h1>
         <p className="page-description">{t("welcomeSub")}</p>
       </div>
     </section>
@@ -2572,10 +2591,17 @@ function SettingsPage({ fields, loading, t, settings, libraryName, busy, onSave,
       <div className="panel-head"><div>      <div className="panel-title">{t("settings")}</div><div className="panel-subtitle">{t("settingsDescription")}</div></div><ShieldCheck size={16} color="#67957f" /></div>
       <div className="settings-body">
       <div className="form-grid">
-        <FieldInput label={t("schoolName")} name="school-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
+        <FieldInput label={t("institutionName")} name="institution-name" value={draft.libraryName} onChange={(value) => setDraft({ ...draft, libraryName: value })} required />
         <FieldInput label={t("finePerDay")} name="fine-per-day" type="number" step="0.01" min={0} value={String(draft.finePerDay)} onChange={(value) => setDraft({ ...draft, finePerDay: Number(value) })} required />
           <div className="field"><label htmlFor="settings-language">{t("language")}</label><select id="settings-language" className="select-control" value={draft.defaultLanguage} onChange={(event) => { const nextLanguage = event.target.value as "en" | "am"; setDraft({ ...draft, defaultLanguage: nextLanguage }); void onChangeLanguage(nextLanguage); }}><option value="en">{t("english")}</option><option value="am">{t("amharic")}</option></select></div>
         </div>
+        <div className="settings-logo-row">
+          <span className="settings-logo-preview">{secureFileUrl(draft.logoUrl) ? <img src={secureFileUrl(draft.logoUrl) || undefined} alt={t("institutionLogo")} /> : <LibraryBig size={20} />}</span>
+          <div className="settings-logo-copy"><strong>{t("institutionLogo")}</strong><small>{t("logoUploadHelp")}</small></div>
+          <label className="button settings-logo-upload">{t("uploadLogo")}<input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={busy} onChange={(event) => void uploadLogo(event)} /></label>
+        </div>
+        {logoUploadError && <div className="notice" role="alert">{logoUploadError}</div>}
+        {draft.logoUrl !== settings.logoUrl && <p className="settings-upload-status">{t("logoUploaded")}</p>}
         <div className="settings-translation-heading"><div><div className="panel-title">{t("interfaceText")}</div><div className="panel-subtitle">{t("interfaceTextHelp")}</div></div>
           <button type="button" className="button" onClick={() => setTranslations([...translations, { key: "", english: "", amharic: "" }])}><Plus size={13} />{t("addTranslation")}</button>
         </div>

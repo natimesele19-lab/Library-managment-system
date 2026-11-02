@@ -347,7 +347,7 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
     return;
   }
   const isPlatformAdmin = req.user?.role === "SUPER_ADMIN";
-  const { libraryName, appTitle, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; finePerDay?: unknown };
+  const { libraryName, appTitle, logoUrl: requestedLogoUrl, finePerDay: requestedFinePerDay } = req.body as { libraryName?: unknown; appTitle?: unknown; logoUrl?: unknown; finePerDay?: unknown };
   const canUpdatePortalName = isPlatformAdmin && req.path === "/api/platform/settings";
   const tenantId = req.tenantId ?? currentTenantId() ?? "default";
   const canUpdateSchoolDisplayName = Boolean(tenantId && tenantId !== "default") &&
@@ -407,7 +407,10 @@ const saveAdminSettings = settingsRoute(async (req, res) => {
   const landingSettings = {} as typeof landingDefaults;
   for (const key of Object.keys(landingDefaults) as (keyof typeof landingDefaults)[]) {
     const requested = req.body[key];
-    const value = !isPlatformAdmin || requested === undefined ? current?.[key] ?? landingDefaults[key] : requested;
+    const canUpdateSetting = isPlatformAdmin || (key === "logoUrl" && canUpdateSchoolDisplayName);
+    const value = !canUpdateSetting || requested === undefined
+      ? current?.[key] ?? landingDefaults[key]
+      : key === "logoUrl" ? requestedLogoUrl : requested;
     if (typeof value !== "string" || value.length > settingLimits[key]) {
       res.status(400).json({ error: `${key} must be a string of at most ${settingLimits[key]} characters.` });
       return;

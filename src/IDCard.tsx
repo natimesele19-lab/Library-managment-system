@@ -1,3 +1,4 @@
+import { LibraryBig } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 export type IDCardPatron = {
@@ -11,15 +12,25 @@ export type IDCardPatron = {
   department?: string | null;
 };
 
-export function IDCard({ patron, libraryName, t }: { patron: IDCardPatron; libraryName: string; t: (key: string) => string }) {
+export function IDCard({ patron, institutionName, logoUrl, t }: {
+  patron: IDCardPatron; institutionName: string; logoUrl: string; t: (key: string) => string;
+}) {
   const detail = patron.type === "TEACHER" ? patron.department : patron.grade;
   const detailLabel = patron.type === "TEACHER" ? t("department") : t("grade");
+  let secureLogoUrl = "";
+  try {
+    const url = new URL(logoUrl);
+    if (url.protocol === "https:") secureLogoUrl = url.href;
+  } catch {
+    secureLogoUrl = "";
+  }
 
   return <article className={`id-card ${patron.type === "TEACHER" ? "id-card-teacher" : ""}`}>
     <div className="id-card-content">
       <div className="id-card-details">
         <div className="id-card-brand">
-          <span className="id-card-library-name">{libraryName}</span>
+          <span className="id-card-brand-logo">{secureLogoUrl ? <img src={secureLogoUrl} alt="" /> : <LibraryBig size={18} />}</span>
+          <span className="id-card-library-name">{institutionName}</span>
           <span className="id-card-brand-role">
             <span aria-hidden="true">— </span>
             {t(patron.type === "TEACHER" ? "teacherRole" : "studentRole")}

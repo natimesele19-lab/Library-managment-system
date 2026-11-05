@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ExternalLink, FileText, LayoutGrid, List, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { ApiRecord } from "./api";
+import { ResourceCover } from "./ResourceCover";
 
 type ExamSheetRow = ApiRecord & { [key: string]: unknown };
 
@@ -28,6 +29,13 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
       return "";
     }
   };
+  const coverImage = (record: ExamSheetRow) => {
+    const fields = record.customFields;
+    const customCover = fields && typeof fields === "object" && !Array.isArray(fields)
+      ? Object.entries(fields).find(([key]) => /cover|thumbnail/i.test(key))?.[1]
+      : undefined;
+    return secureFileUrl(record.coverImage || record.coverUrl || record.coverPath || customCover);
+  };
 
   return <>
     <div className="page-heading">
@@ -51,6 +59,7 @@ export function ExamSheetsPage({ records, loading, query, setQuery, busy, librar
       </div>
       {viewMode === "grid" && <div className="exam-sheet-grid">
         {loading ? <div className="loading-state">{t("loading")}</div> : records.length ? records.map((record) => <article className="panel exam-sheet-card" key={record.id}>
+          <ResourceCover variant="exam" title={text(record.title)} imageUrl={coverImage(record)} />
           <div className="record-card-heading"><div className="record-card-icon"><FileText size={18} /></div><div><h2>{text(record.title)}</h2><small>{text(record.subject)}</small></div></div>
           <div className="record-card-details">
             <div className="record-card-detail"><span>{t("grade")}</span><strong>{text(record.grade)}</strong></div>

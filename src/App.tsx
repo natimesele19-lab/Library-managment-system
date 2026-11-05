@@ -2,8 +2,8 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Form
 import { useTranslation } from "react-i18next";
 import {
   Activity, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
-  CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
-  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon, Play,
+  CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign,
+  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Maximize2, Minimize2, Moon, Play,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
   MapPin, Mail, Phone, Power, QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import { BorrowerLookup } from "./BorrowerLookup";
 import { IDCard, type IDCardPatron } from "./IDCard";
 import { ExamSheetsPage } from "./ExamSheetsPage";
 import { LandingPage } from "./LandingPage";
+import { ResourceCover } from "./ResourceCover";
 import { DatePickerInput, ethiopianDateToGregorian, formatEthiopianDate, gregorianDateToEthiopian, todayEthiopianDate } from "./EthiopianDateInput";
 
 type Page = "dashboard" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
@@ -28,6 +29,7 @@ const isCrudPage = (page: Page): page is CrudPage =>
 type Row = ApiRecord & { [key: string]: unknown };
 type ViewMode = "grid" | "list";
 type PortalMediaType = "PDF" | "AUDIO" | "VIDEO";
+type MediaPreviewInfo = { title: string; type: string; url: string; videoId?: string };
 type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
 type Stats = {
   totalBooks: number; totalExamSheets: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
@@ -213,6 +215,35 @@ const secureFileUrl = (value: unknown) => {
     return "";
   }
 };
+function resourceCoverImage(record: Row) {
+  const fields = record.customFields;
+  const customCover = fields && typeof fields === "object" && !Array.isArray(fields)
+    ? Object.entries(fields).find(([key]) => /cover|thumbnail/i.test(key))?.[1]
+    : undefined;
+  return secureFileUrl(record.coverImage || record.coverUrl || record.coverPath || customCover);
+}
+function isMobilePdfViewer() {
+  return window.matchMedia("(max-width: 760px)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+function tryOpenPdfInMobileTab(fileUrl: string, loadFile: () => Promise<Blob>, onError: (message: string) => void) {
+  if (!isMobilePdfViewer()) return false;
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) return false;
+  tab.opener = null;
+  if (fileUrl) {
+    tab.location.replace(fileUrl);
+    return true;
+  }
+  void loadFile().then((file) => {
+    const url = URL.createObjectURL(file);
+    tab.location.replace(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  }).catch((cause: unknown) => {
+    tab.close();
+    onError(cause instanceof Error ? cause.message : "Unable to open this PDF.");
+  });
+  return true;
+}
 const isCloudinaryUrl = (value: unknown) => {
   if (typeof value !== "string") return false;
   try {
@@ -235,6 +266,58 @@ const dateAfterDays = (days: number) => {
   date.setDate(date.getDate() + days);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
+
+function MediaPreviewDialog({ preview, onClose, t }: {
+  preview: MediaPreviewInfo; onClose: () => void; t: (key: string) => string;
+}) {
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState("");
+
+  useEffect(() => {
+    const updateFullscreen = () => setFullscreen(document.fullscreenElement === viewerRef.current);
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
+
+  async function toggleFullscreen() {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    setFullscreenError("");
+    try {
+      if (document.fullscreenElement === viewer) await document.exitFullscreen();
+      else {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        await viewer.requestFullscreen();
+      }
+    } catch (cause) {
+      setFullscreenError(cause instanceof Error ? cause.message : "Unable to change fullscreen mode.");
+    }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="modal media-preview-modal" role="dialog" aria-modal="true" ref={viewerRef}>
+      <div className="modal-head">
+        <div className="modal-title">{preview.title}</div>
+        <div className="media-preview-controls">
+          {preview.type === "PDF" && <>
+            <a className="button media-preview-open" href={preview.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /><span>{t("openFile")}</span></a>
+            <button type="button" className="button media-preview-fullscreen" onClick={() => void toggleFullscreen()} aria-label={t(fullscreen ? "exitFullScreen" : "fullScreen")} title={t(fullscreen ? "exitFullScreen" : "fullScreen")}>
+              {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>{t(fullscreen ? "exitFullScreen" : "fullScreen")}</span>
+            </button>
+          </>}
+          <button className="row-action" aria-label={t("cancel")} onClick={onClose}><X size={17} /></button>
+        </div>
+      </div>
+      {fullscreenError && <div className="notice" role="alert">{fullscreenError}</div>}
+      {preview.type === "VIDEO" && preview.videoId ? <iframe title={preview.title} src={preview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+        : preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} className="media-pdf-player" />
+          : preview.type === "IMAGE" ? <img alt={preview.title} src={preview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
+            : preview.type === "AUDIO" ? <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
+              : <a className="button" href={preview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
+    </div>
+  </div>;
+}
 
 function Brand({ libraryName, logoUrl = "" }: { libraryName: string; logoUrl?: string }) {
   const { t } = useTranslation();
@@ -725,6 +808,7 @@ function App() {
   const [activeTenantId, setActiveTenantId] = useState(() => localStorage.getItem("library-active-tenant"));
   const [page, setPage] = useState<Page>("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("library-sidebar-collapsed") === "true");
   const [records, setRecords] = useState<Row[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mediaPreview, setMediaPreview] = useState<{ title: string; type: string; url: string; videoId?: string } | null>(null);
@@ -1390,6 +1474,7 @@ function App() {
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
       const fileEndpoint = page === "books" ? `/books/${record.id}/file` : page === "examSheets" ? `/exam-sheets/${record.id}/file` : `/media/${record.id}/file`;
+      if (isPdf && tryOpenPdfInMobileTab(storedUrl, () => download(fileEndpoint), setError)) return;
       const url = isPdf && (isCloudinaryUrl(record.filePath) || isCloudinaryUrl(record.url))
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));
@@ -1630,31 +1715,42 @@ function App() {
 
   const pageTitle = selectedItem ? t(selectedItem.label) : t("dashboard");
 
-  return <div className="app-shell">
-    <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
-      <Brand libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} />
+  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <aside className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-brand-row">
+        <Brand libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} />
+        <button type="button" className="sidebar-collapse-toggle" aria-label={t(sidebarCollapsed ? "expandSidebar" : "collapseSidebar")}
+          title={t(sidebarCollapsed ? "expandSidebar" : "collapseSidebar")}
+          onClick={() => {
+            const next = !sidebarCollapsed;
+            localStorage.setItem("library-sidebar-collapsed", String(next));
+            setSidebarCollapsed(next);
+          }}>
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </div>
       <div className="nav-caption">{t("overview")}</div>
       <nav className="nav-list">
         {navItems.filter((item) => item.section === "main" && (item.page !== "settings" || currentUser.role === "ADMIN")).map((item) => {
           const Icon = item.icon;
-          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
-            <Icon size={15} strokeWidth={1.8} />{t(item.label)}
+          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} title={t(item.label)} aria-label={t(item.label)} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
+            <Icon size={15} strokeWidth={1.8} /><span className="nav-item-label">{t(item.label)}</span>
           </button>;
         })}
       </nav>
-      <div className="nav-caption" style={{ marginTop: 18 }}>{t("adminSettings")}</div>
+      <div className="nav-caption sidebar-administration-caption" style={{ marginTop: 18 }}>{t("adminSettings")}</div>
       <nav className="nav-list">
         {navItems.filter((item) => item.section === "manage" && (item.page !== "idCards" || currentUser.role === "ADMIN")).map((item) => {
           const Icon = item.icon;
-          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
-            <Icon size={15} strokeWidth={1.8} />{t(item.label)}
+          return <button key={item.page} className={`nav-item ${page === item.page ? "active" : ""}`} title={t(item.label)} aria-label={t(item.label)} onClick={() => { setPage(item.page); setMenuOpen(false); setQuery(""); setSelectedIds([]); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}>
+            <Icon size={15} strokeWidth={1.8} /><span className="nav-item-label">{t(item.label)}</span>
             {item.page === "circulation" && stats?.overdueBooks ? <span className="nav-count">{stats.overdueBooks}</span> : null}
           </button>;
         })}
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-tip"><div className="sidebar-tip-title">{t("digitalLibrary")}</div><div className="sidebar-tip-text">{t("resourcesDescription")}</div></div>
-        {currentUser.role === "SUPER_ADMIN" && <button type="button" className="button platform-return-button" onClick={returnToPlatform}><Building2 size={14} />{t("platformDashboard")}</button>}
+        {currentUser.role === "SUPER_ADMIN" && <button type="button" className="button platform-return-button" title={t("platformDashboard")} onClick={returnToPlatform}><Building2 size={14} /><span>{t("platformDashboard")}</span></button>}
         <div className="profile">
           <div className="avatar">{t("admin").slice(0, 2)}</div><div style={{ minWidth: 0, flex: 1 }}><div className="profile-name">{t("admin")}</div><div className="profile-role">{t("adminSettings")}</div></div>
           <button className="icon-button" aria-label={t("signOut")} title={t("signOut")} onClick={signOut}><LogOut size={15} /></button>
@@ -1712,16 +1808,7 @@ function App() {
       </div>
     </main>
     {scannerMode && <CameraScanner onClose={() => setScannerMode(null)} onScan={handleScannedCode} />}
-    {mediaPreview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeMediaPreview(); }}>
-      <div className="modal media-preview-modal" role="dialog" aria-modal="true">
-        <div className="modal-head"><div className="modal-title">{mediaPreview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={closeMediaPreview}><X size={17} /></button></div>
-        {mediaPreview.type === "VIDEO" && mediaPreview.videoId ? <iframe title={mediaPreview.title} src={mediaPreview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
-          : mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
-          : mediaPreview.type === "IMAGE" ? <img alt={mediaPreview.title} src={mediaPreview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
-            : mediaPreview.type === "AUDIO" ? <audio controls src={mediaPreview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
-              : <a className="button" href={mediaPreview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
-      </div>
-    </div>}
+    {mediaPreview && <MediaPreviewDialog preview={mediaPreview} onClose={closeMediaPreview} t={t} />}
     {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
       <div className="modal" role="dialog" aria-modal="true">
         <div className="modal-head"><div className="modal-title">{modal === "borrow" ? t("issueBooks") : modal === "editBorrowing" ? t("edit") : modal === "field" ? editingField ? t("editField") : t("addField") : modal === "fine" ? t("collectFine") : modal === "account" ? accountPatron?.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword") : editing ? t("save") : isDataPage && page === "books" ? t("addBook") : isDataPage && page === "examSheets" ? t("addExamSheet") : isDataPage && page === "students" ? t("addStudent") : t("addRecord")}</div>
@@ -1838,6 +1925,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const { t } = useTranslation();
   const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations">("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("library-sidebar-collapsed") === "true");
   const [books, setBooks] = useState<Row[]>([]);
   const [examSheets, setExamSheets] = useState<Row[]>([]);
   const [loans, setLoans] = useState<Row[]>([]);
@@ -1852,7 +1940,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [preview, setPreview] = useState<{ title: string; type: string; url: string } | null>(null);
+  const [preview, setPreview] = useState<MediaPreviewInfo | null>(null);
   const [busyReservation, setBusyReservation] = useState("");
 
   useEffect(() => {
@@ -1992,9 +2080,10 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
         : item.catalogType === "EXAM_SHEET" || key.startsWith("exam-sheet:")
           ? `/exam-sheets/${item.id}/file`
           : `/media/${item.id}/file`;
+      if (isPdf && tryOpenPdfInMobileTab(storedUrl, () => download(fileEndpoint), (message) => setError(message))) return;
       const url = isPdf && (isCloudinaryUrl(item.filePath) || isCloudinaryUrl(item.url))
         ? URL.createObjectURL(await download(fileEndpoint))
-        : storedUrl || URL.createObjectURL(await download(`/media/${item.id}/file`));
+        : storedUrl || URL.createObjectURL(await download(fileEndpoint));
       setPreview({ title: toText(item.title), type, url });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("mediaUnavailable"));
@@ -2012,12 +2101,23 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
 
   return <div className="portal-shell">
     {menuOpen && <button type="button" className="portal-sidebar-scrim" aria-label={t("closeMenu")} onClick={() => setMenuOpen(false)} />}
-    <aside className={`portal-sidebar ${menuOpen ? "open" : ""}`}>
-      <Brand libraryName={libraryName} logoUrl={logoUrl} />
+    <aside className={`portal-sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`}>
+      <div className="portal-sidebar-brand-row">
+        <Brand libraryName={libraryName} logoUrl={logoUrl} />
+        <button type="button" className="sidebar-collapse-toggle" aria-label={t(sidebarCollapsed ? "expandSidebar" : "collapseSidebar")}
+          title={t(sidebarCollapsed ? "expandSidebar" : "collapseSidebar")}
+          onClick={() => {
+            const next = !sidebarCollapsed;
+            localStorage.setItem("library-sidebar-collapsed", String(next));
+            setSidebarCollapsed(next);
+          }}>
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </div>
       <div className="nav-caption">{t("overview")}</div>
       <nav className="portal-nav-list" aria-label={t("overview")}>
         {portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`portal-nav-item ${tab === id ? "active" : ""}`}
-          aria-current={tab === id ? "page" : undefined} onClick={() => { setTab(id); setMenuOpen(false); }}>
+          aria-current={tab === id ? "page" : undefined} aria-label={label} title={label} onClick={() => { setTab(id); setMenuOpen(false); }}>
           <Icon size={16} strokeWidth={1.8} /><span>{label}</span>
           {id === "reservations" && activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}
         </button>)}
@@ -2068,7 +2168,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
               isBook ? reservation.bookId === item.id : reservation.examSheetId === item.id);
             const fileUrl = secureFileUrl(item.filePath);
             return <article className="panel portal-book" key={`${item.catalogType}:${item.id}`}>
-              <div className="portal-book-cover">{isBook ? <BookOpen size={23} /> : <FileText size={23} />}</div>
+              <ResourceCover variant={isBook ? "book" : "exam"} title={toText(item.title)} imageUrl={resourceCoverImage(item)} />
               <div className="portal-book-id">{t("id")}: {toText(item.id)}</div>
               <div className="portal-book-category">{isBook ? toText(item.category) || t("books") : t("examSheet")}</div>
               <h2>{toText(item.title)}</h2>
@@ -2120,16 +2220,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       </div>
       {t("footerNotice") && <footer className="app-footer">{t("footerNotice")}</footer>}
     </main>
-    {preview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
-      <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
-        <div className="modal-head"><div className="modal-title">{preview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setPreview(null)}><X size={17} /></button></div>
-        {preview.type === "VIDEO" ? <iframe title={preview.title} src={preview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
-          : preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
-          : preview.type === "IMAGE" ? <img alt={preview.title} src={preview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
-            : preview.type === "AUDIO" ? <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
-              : <a className="button" href={preview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
-      </div>
-    </div>}
+    {preview && <MediaPreviewDialog preview={preview} onClose={() => setPreview(null)} t={t} />}
     </div>
   </div>;
 }
@@ -2159,11 +2250,31 @@ function PortalMediaSection({ media, loading, onOpen, t, viewMode = "list" }: {
 }) {
   return <section className="panel portal-media-panel">
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
-    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className={`portal-media-grid ${viewMode === "grid" ? "is-grid" : "is-list"}`}>{media.map((item) => <article className="portal-media-item" key={toText(item.key) || item.id}>
-      <div className="portal-media-icon">{portalMediaType(item) === "PDF" ? <FileText size={17} /> : portalMediaType(item) === "AUDIO" ? <FileAudio size={17} /> : portalMediaType(item) === "VIDEO" ? <Play size={17} /> : <BookOpen size={17} />}</div>
-      <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
-      <button className="button" onClick={() => void onOpen(item)}>{t(toText(item.mediaType).toUpperCase() === "PDF" ? "openFile" : "previewMedia")}</button>
-    </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}
+    {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className={`portal-media-grid ${viewMode === "grid" ? "is-grid" : "is-list"}`}>{media.map((item) => {
+      const videoId = youtubeVideoId(toText(item.filePath || item.url));
+      const itemType = portalMediaType(item);
+      return <article className={`portal-media-item ${videoId ? "has-video-thumbnail" : ""}`} key={toText(item.key) || item.id}
+        role={videoId ? "button" : undefined} tabIndex={videoId ? 0 : undefined}
+        aria-label={videoId ? `${t("playVideo")}: ${toText(item.title)}` : undefined}
+        onClick={videoId ? () => void onOpen(item) : undefined}
+        onKeyDown={videoId ? (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void onOpen(item);
+          }
+        } : undefined}>
+        {videoId && <div className="portal-media-video" aria-hidden="true">
+          <img src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`} alt="" loading="lazy" />
+          <span><Play size={22} fill="currentColor" /></span>
+        </div>}
+        {!videoId && (itemType === "PDF" ? <ResourceCover
+          variant={toText(item.key).startsWith("book:") ? "book" : toText(item.key).startsWith("exam-sheet:") ? "exam" : "document"}
+          title={toText(item.title)} imageUrl={resourceCoverImage(item)} className="portal-media-cover" />
+          : <div className="portal-media-icon"><FileAudio size={17} /></div>)}
+        <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
+        {videoId ? <span className="button">{t("previewMedia")}</span> : <button className="button" onClick={() => void onOpen(item)}>{itemType === "PDF" ? t("openFile") : t("previewMedia")}</button>}
+      </article>;
+    })}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}
   </section>;
 }
 
@@ -2535,6 +2646,8 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           const videoId = isMedia ? youtubeVideoId(record.filePath || record.url) : "";
           return <article className="panel record-card" key={record.id}>
             {isPeople && <label className="record-card-select"><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} />{t("selectAll")}</label>}
+            {(page === "books" || (isMedia && toText(record.mediaType).toUpperCase() === "PDF")) && <ResourceCover
+              variant={page === "books" ? "book" : "document"} title={title} imageUrl={resourceCoverImage(record)} />}
             <div className="record-card-heading">
               <div className="record-card-icon">{page === "books" ? <BookOpen size={18} /> : page === "examSheets" ? <FileText size={18} /> : isPeople ? <Users size={18} /> : isMedia && toText(record.mediaType).toUpperCase() === "PDF" ? <FileText size={18} /> : isMedia && videoId ? <Play size={18} /> : <FileAudio size={18} />}</div>
               <div><h2>{title || "—"}</h2><small>{toText(isPeople ? record.memberCode : record.id)}</small></div>
@@ -2577,7 +2690,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && isMedia && youtubeVideoId(record.filePath || record.url) ? <button type="button" className="media-table-preview" title={t("playVideo")} onClick={() => onPreview(record)}><img src={`https://img.youtube.com/vi/${youtubeVideoId(record.filePath || record.url)}/hqdefault.jpg`} alt="" loading="lazy" /><span>{toText(record.title)}</span><Play size={14} /></button> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "borrowDate" ? formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language) : key === "dueDate" || key === "createdAt" ? formatEthiopianDate(toText(record[key]), i18n.language) : toText(record[key]) || "—"}</td>)}
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && isMedia && youtubeVideoId(record.filePath || record.url) ? <button type="button" className="media-table-preview" title={t("playVideo")} onClick={() => onPreview(record)}><img src={`https://img.youtube.com/vi/${youtubeVideoId(record.filePath || record.url)}/hqdefault.jpg`} alt="" loading="lazy" /><span>{toText(record.title)}</span><Play size={14} /></button> : key === "title" && page === "books" ? <div className="book-info"><ResourceCover variant="book" title={toText(record.title)} imageUrl={resourceCoverImage(record)} className="book-cover-resource" /><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "borrowDate" ? formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language) : key === "dueDate" || key === "createdAt" ? formatEthiopianDate(toText(record[key]), i18n.language) : toText(record[key]) || "—"}</td>)}
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <button className="row-action" title={t("openFile")} aria-label={t("openFile")} onClick={() => onPreview({ ...record, mediaType: "PDF" })}><ExternalLink size={14} /></button>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>

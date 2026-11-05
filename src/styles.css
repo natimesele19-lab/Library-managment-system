@@ -115,12 +115,13 @@ button { cursor: pointer; }
 .toolbar-group { display: flex; flex: 1 1 360px; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .toolbar-group > .table-search { flex: 1 1 220px; min-width: min(100%,235px); }
 .toolbar-group > .select-control { flex: 0 1 170px; min-width: min(100%,130px); max-width: 100%; }
-.toolbar > .toolbar-group:last-child { flex: 1 1 500px; justify-content: flex-end; }
+.toolbar > .toolbar-group:last-child { flex: 0 1 auto; justify-content: flex-end; }
 .toolbar-group.export-actions { flex: 0 1 auto; }
 .toolbar-icon-button { white-space: nowrap; }
-.media-category-tabs { display: flex; gap: 8px; padding: 14px 15px 0; }
-.media-category-tab { display: flex; flex: 1 1 0; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 14px; border: 1px solid #e9edef; border-radius: 8px; color: #657076; background: #fafbfb; font-size: 11px; font-weight: 650; cursor: pointer; transition: .15s; }
-.media-category-tab:hover,.media-category-tab.active { border-color: #c8d9ce; color: #34705b; background: #eaf2ee; }
+.media-category-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; width: min(100%,1400px); margin: 0 auto; padding: 18px 22px 4px; }
+.media-category-tab { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; min-height: 58px; padding: 12px 16px; border: 1px solid #e9edef; border-radius: 9px; color: #657076; background: linear-gradient(145deg,#fff,#fafbfb); font-size: 12px; font-weight: 650; cursor: pointer; transition: border-color .15s,background .15s,color .15s,box-shadow .15s,transform .15s; }
+.media-category-tab:hover,.media-category-tab.active { transform: translateY(-1px); border-color: #bdd3c5; color: #34705b; background: linear-gradient(145deg,#f6faf7,#eaf2ee); box-shadow: 0 5px 14px rgba(48,91,70,.08); }
+.media-category-tab svg { flex: 0 0 auto; color: #52876f; }
 .media-category-tab:focus-visible { outline: 2px solid #77a18c; outline-offset: 2px; }
 .media-video-thumbnail { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; margin-top: 12px; overflow: hidden; padding: 0; border: 0; border-radius: 7px; background: #1b2723; cursor: pointer; }
 .media-video-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
@@ -130,11 +131,17 @@ button { cursor: pointer; }
 .media-table-preview img { width: 72px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; }
 .media-table-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-table-preview svg { flex: 0 0 auto; color: #52876f; }
-.media-video-player { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; border: 0; border-radius: 6px; background: #111; }
+.media-preview-modal { width: min(1200px,100%); }
+.media-video-player { display: block; width: 100%; height: auto; max-height: calc(100dvh - 150px); aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #111; }
 .view-mode-toggle { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #e9edef; border-radius: 7px; background: #fafbfb; }
 .view-mode-toggle .button { padding: 6px 8px; }
 .view-mode-toggle .button.active { color: #34705b; border-color: #c8d9ce; background: #eaf2ee; }
 .record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding: 0 15px 14px; }
+.record-grid.media-record-grid { grid-template-columns: repeat(3,minmax(0,1fr)); width: min(100%,1440px); margin: 0 auto; gap: 16px; padding: 14px 22px 24px; }
+.media-record-grid .record-card { min-width: 0; overflow: hidden; }
+.media-record-grid .record-card-heading > div:last-child { min-width: 0; }
+.media-record-grid .record-card-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-record-grid .media-video-thumbnail { margin-top: 14px; }
 .record-card { min-width: 0; padding: 15px; }
 .record-card-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .record-card-icon { display: grid; place-items: center; width: 35px; height: 35px; flex: 0 0 auto; color: #4c8069; background: #eaf2ee; border-radius: 8px; }
@@ -509,6 +516,7 @@ button { cursor: pointer; }
   .sidebar { width: 220px; }
   .main-content { width: calc(100% - 220px); }
   .page-content { padding-left: 25px; padding-right: 25px; }
+  .record-grid.media-record-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding-left: 14px; padding-right: 14px; }
   .topbar { padding: 0 25px; }
   .stats-grid { gap: 9px; }
   .stat-card { padding: 14px 12px; }
@@ -569,9 +577,9 @@ button { cursor: pointer; }
   .view-mode-toggle .button span { display: none; }
   .view-mode-toggle .button { min-width: 32px; min-height: 32px; justify-content: center; padding: 6px; }
   .media-category-tabs { gap: 5px; padding: 9px 10px 0; }
-  .media-category-tab { flex: 0 0 auto; min-height: 38px; gap: 6px; padding: 7px 10px; font-size: 10px; }
+  .media-category-tab { min-height: 42px; gap: 6px; padding: 8px 10px; font-size: 10px; }
   .media-category-tab svg { width: 14px; height: 14px; }
-  .media-video-player { max-height: 65vh; }
+  .media-video-player { max-height: calc(100dvh - 150px); }
   .id-cards-toolbar .heading-actions { width: 100%; flex-wrap: nowrap; gap: 6px; }
   .id-cards-toolbar .heading-actions .table-search { flex: 1 1 120px; min-width: 0; }
   .id-cards-toolbar .heading-actions .select-control { flex: 0 1 auto; min-width: 0; padding-right: 20px; }
@@ -622,8 +630,9 @@ button { cursor: pointer; }
   .borrower-summary, .identified-loan { align-items: flex-start; flex-direction: column; }
   .borrower-scan-button { padding: 7px; font-size: 0; }
   .borrower-scan-button svg { width: 15px; height: 15px; }
-  .media-category-tabs { overflow-x: auto; }
-  .media-category-tab { flex: 1 0 auto; }
+  .media-category-tabs { display: flex; overflow-x: auto; }
+  .media-category-tab { flex: 1 0 auto; min-width: max-content; }
+  .record-grid.media-record-grid { grid-template-columns: 1fr; gap: 8px; padding: 10px 10px 14px; }
   .id-card { padding: 12px 12px 12px 17px; border-radius: 13px; }
   .id-card-content { gap: 8px; }
   .id-card-brand { margin-bottom: 7px; font-size: 9px; letter-spacing: .55px; }
@@ -636,6 +645,9 @@ button { cursor: pointer; }
   .id-card dd { font-size: 9px; }
   .id-card-qr { padding: 6px; }
   .id-card-qr svg { width: 82px; height: 82px; }
+}
+@media (min-width: 1250px) {
+  .record-grid.media-record-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
 }
 @media print {
   @page { size: auto; margin: 12mm; }

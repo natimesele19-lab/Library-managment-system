@@ -1703,7 +1703,7 @@ function App() {
     </main>
     {scannerMode && <CameraScanner onClose={() => setScannerMode(null)} onScan={handleScannedCode} />}
     {mediaPreview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeMediaPreview(); }}>
-      <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
+      <div className="modal media-preview-modal" role="dialog" aria-modal="true">
         <div className="modal-head"><div className="modal-title">{mediaPreview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={closeMediaPreview}><X size={17} /></button></div>
         {mediaPreview.type === "VIDEO" && mediaPreview.videoId ? <iframe title={mediaPreview.title} src={mediaPreview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
           : mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
@@ -2338,7 +2338,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const [patronLoans, setPatronLoans] = useState<Row[]>([]);
   const [patronLoansLoading, setPatronLoansLoading] = useState(false);
   const [idCardPatron, setIdCardPatron] = useState<IDCardPatron | null>(null);
-  const [listingViewMode, setListingViewMode] = useState<ViewMode>("list");
+  const [listingViewMode, setListingViewMode] = useState<ViewMode>(page === "media" ? "grid" : "list");
   const [youtubeVideoDialogOpen, setYoutubeVideoDialogOpen] = useState(false);
   const [youtubeTitle, setYoutubeTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -2357,6 +2357,10 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   useEffect(() => {
     setSelectedPatron(null);
     setPatronLoans([]);
+  }, [page]);
+
+  useEffect(() => {
+    setListingViewMode(page === "media" ? "grid" : "list");
   }, [page]);
 
   useEffect(() => {
@@ -2434,7 +2438,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           ["AUDIO", FileAudio, "audioFiles"],
           ["VIDEO", Play, "videos"],
         ] as const).map(([type, Icon, label]) => <button key={type} type="button" role="tab" aria-selected={statusFilter === type} className={`media-category-tab ${statusFilter === type ? "active" : ""}`} onClick={() => setStatusFilter(statusFilter === type ? "ALL" : type)}>
-          <Icon size={16} /><span>{t(label)}</span>
+          <Icon size={17} /><span>{t(label)}</span>
         </button>)}
       </div>}
       <div className="toolbar">
@@ -2476,7 +2480,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           </div>}
         </section>
       </>}
-      {supportsViewToggle && listingViewMode === "grid" && <div className="record-grid">
+      {supportsViewToggle && listingViewMode === "grid" && <div className={`record-grid ${isMedia ? "media-record-grid" : ""}`}>
         {loading ? <div className="panel loading-state">{t("loading")}</div> : records.length ? records.map((record) => {
           const title = toText(record.title || record.name || record.asset || record.fileName);
           const recordDetails = headers.filter(([key]) => key !== "title" && key !== "id").slice(0, 4);
@@ -2484,7 +2488,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           return <article className="panel record-card" key={record.id}>
             {isPeople && <label className="record-card-select"><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} />{t("selectAll")}</label>}
             <div className="record-card-heading">
-              <div className="record-card-icon">{page === "books" ? <BookOpen size={18} /> : page === "examSheets" ? <FileText size={18} /> : isPeople ? <Users size={18} /> : <FileAudio size={18} />}</div>
+              <div className="record-card-icon">{page === "books" ? <BookOpen size={18} /> : page === "examSheets" ? <FileText size={18} /> : isPeople ? <Users size={18} /> : isMedia && toText(record.mediaType).toUpperCase() === "PDF" ? <FileText size={18} /> : isMedia && videoId ? <Play size={18} /> : <FileAudio size={18} />}</div>
               <div><h2>{title || "—"}</h2><small>{toText(isPeople ? record.memberCode : record.id)}</small></div>
             </div>
             {videoId && <button type="button" className="media-video-thumbnail" title={t("playVideo")} aria-label={`${t("playVideo")}: ${title}`} onClick={() => onPreview(record)}>

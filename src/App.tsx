@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Activity, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, CircleDollarSign,
-  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon,
+  Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Moon, Play,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
   MapPin, Mail, Phone, Power, QrCode, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, WifiOff, X,
 } from "lucide-react";
@@ -36,6 +36,21 @@ type Stats = {
   bookCategories: { name: string; count: number }[];
   recentLoans: Row[];
 };
+const youtubeVideoId = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    let id = "";
+    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] || "";
+    else if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+      id = url.searchParams.get("v") || url.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?]+)/)?.[1] || "";
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+  } catch {
+    return "";
+  }
+};
 const EMPTY_STATS: Stats = {
   totalBooks: 0,
   totalExamSheets: 0,
@@ -67,6 +82,7 @@ function savedAccount(): Account | null {
     localStorage.removeItem("library-user");
     return null;
   }
+
 }
 
 async function uploadLibraryLogo(file: File, endpoint = "/upload"): Promise<string> {
@@ -701,7 +717,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [records, setRecords] = useState<Row[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [mediaPreview, setMediaPreview] = useState<{ title: string; type: string; url: string } | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<{ title: string; type: string; url: string; videoId?: string } | null>(null);
   const [borrowers, setBorrowers] = useState<Row[]>([]);
   const [availableBooks, setAvailableBooks] = useState<Row[]>([]);
   const [availableExamSheets, setAvailableExamSheets] = useState<Row[]>([]);
@@ -905,9 +921,11 @@ function App() {
       return filtered.filter((record) => ["title", "author", "borrowerName", "memberCode"].some((key) => toText(record[key]).toLowerCase().includes(search)));
     }
     if (page === "media") {
+      const search = query.trim().toLowerCase();
       return records.filter((record) =>
-        (statusFilter === "ALL" || toText(record.mediaType) === statusFilter) &&
-        (mediaCategoryFilter === "ALL" || toText(record.category) === mediaCategoryFilter),
+        (statusFilter === "ALL" || toText(record.mediaType).toUpperCase() === statusFilter) &&
+        (mediaCategoryFilter === "ALL" || toText(record.category) === mediaCategoryFilter) &&
+        (!search || [record.title, record.author, record.fileName, record.mediaType, record.category].some((value) => toText(value).toLowerCase().includes(search))),
       );
     }
     if (!isDataPage || page !== "books") return records;
@@ -1351,6 +1369,11 @@ function App() {
     try {
       const storedUrl = secureFileUrl(record.filePath) || secureFileUrl(record.url);
       const filePath = toText(record.filePath || record.url);
+      const videoId = youtubeVideoId(filePath);
+      if (videoId) {
+        setMediaPreview({ title: toText(record.title), type: "VIDEO", url: `https://www.youtube-nocookie.com/embed/${videoId}`, videoId });
+        return;
+      }
       const mimeType = toText(record.mimeType).toLowerCase();
       const isPdf = toText(record.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
       const type = isPdf ? "PDF"
@@ -1579,6 +1602,22 @@ function App() {
     }
   }
 
+  async function addYoutubeVideo(title: string, url: string, category: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/media/youtube", { title, url, category });
+      setSuccess(t("videoAdded"));
+      await load();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("unableToAddVideo"));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const pageTitle = selectedItem ? t(selectedItem.label) : t("dashboard");
 
   return <div className="app-shell">
@@ -1654,7 +1693,7 @@ function App() {
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
           onCreate={page === "circulation" || page === "teacherBorrowing" ? openBorrowModal : startCreate}
           onEdit={startEdit} onDelete={deleteRecord} onReturn={returnLoan} onCollectFine={collectFine} onPortalAccount={openPortalAccount}
-          onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia}
+          onScanReturn={() => startScanning("return")} onExport={exportFile} onImport={importFile} onUpload={uploadMedia} onPreview={previewMedia} onAddYoutubeVideo={addYoutubeVideo}
           selectedIds={selectedIds} onToggleSelected={toggleSelected} onDeleteSelected={deleteSelected} onReturnSelected={returnSelectedLoans}
           onDeleteBorrowing={deleteBorrowing} onEditBorrowing={openBorrowingEdit} onClearHistory={clearBorrowingHistory} onLookupError={setError} busy={busy} t={t}
         />}
@@ -1666,7 +1705,8 @@ function App() {
     {mediaPreview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeMediaPreview(); }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
         <div className="modal-head"><div className="modal-title">{mediaPreview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={closeMediaPreview}><X size={17} /></button></div>
-        {mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
+        {mediaPreview.type === "VIDEO" && mediaPreview.videoId ? <iframe title={mediaPreview.title} src={mediaPreview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+          : mediaPreview.type === "PDF" ? <iframe title={mediaPreview.title} src={mediaPreview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
           : mediaPreview.type === "IMAGE" ? <img alt={mediaPreview.title} src={mediaPreview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
             : mediaPreview.type === "AUDIO" ? <audio controls src={mediaPreview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
               : <a className="button" href={mediaPreview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
@@ -1713,7 +1753,7 @@ function App() {
         </form> : isCrudPage(page) && <form onSubmit={saveRecord}>
           <div className="form-grid">
             {[...pageConfig[page].fields, ...customFields.map((field) => ({ ...field, label: field.label }))].map((field) => (
-              field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : field.key === "gender" ? [["", t("selectGender")], ["Male", t("male")], ["Female", t("female")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
+              field.type === "select" ? <FieldSelect key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} value={form[field.key] || (field.key === "condition" ? "GOOD" : "")} onChange={(value) => setForm({ ...form, [field.key]: value })} options={field.key === "condition" ? [["NEW", t("newAsset")], ["GOOD", t("good")], ["NEEDS_REPAIR", t("repair")], ["WRITTEN_OFF", t("writtenOff")]] : field.key === "gender" ? [["", t("selectGender")], ["Male", t("male")], ["Female", t("female")]] : field.key === "mediaType" ? [["PDF", "PDF"], ["AUDIO", t("audio")], ["VIDEO", t("video")]] : [["PDF", "PDF"], ["AUDIO", "Audio"]]} />
                 : <FieldInput key={field.key} label={customFields.some((custom) => custom.key === field.key) ? (i18n.language === "am" ? field.labelAm || field.label : field.label) : t(field.label)} name={field.key} value={form[field.key] || ""} type={field.type === "number" || field.type === "email" || field.type === "date" || field.type === "tel" || field.type === "url" ? field.type : "text"} step={field.key === "value" ? "0.01" : undefined} required={field.required} placeholder={field.placeholder ? t(field.placeholder) : undefined} onChange={(value) => setForm({ ...form, [field.key]: value })} />))}
             {(page === "books" || page === "examSheets") && <label className="button"><ExternalLink size={13} />{t("uploadFile")}<input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" hidden disabled={busy} onChange={(event) => void uploadRecordFile(event)} /></label>}
             {(page === "students" || page === "staff") && <>
@@ -2228,19 +2268,19 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, logoUrl, 
         }}>
           <option value="ALL">{t("all")}</option><option value="STUDENT">{t("studentsOnly")}</option><option value="TEACHER">{t("teachersOnly")}</option>
         </select>
-        <button className="button button-primary" disabled={loading || visiblePatrons.length === 0} onClick={() => setPrintTarget("all")}>
-          <FileText size={13} />{t("printAllIdCards")}
+        <button className="button button-primary mobile-icon-button" title={t("printAllIdCards")} aria-label={t("printAllIdCards")} disabled={loading || visiblePatrons.length === 0} onClick={() => setPrintTarget("all")}>
+          <FileText size={13} /><span>{t("printAllIdCards")}</span>
         </button>
       </div>
     </div>
     <div className="id-card-selection-toolbar">
-      <button type="button" className="button" disabled={visiblePatrons.length === 0} onClick={() => {
+      <button type="button" className="button mobile-icon-button" title={t(allVisibleSelected ? "deselectAll" : "selectAll")} aria-label={t(allVisibleSelected ? "deselectAll" : "selectAll")} disabled={visiblePatrons.length === 0} onClick={() => {
         setSelectedIds((current) => allVisibleSelected
           ? []
           : [...new Set([...current, ...visiblePatrons.map((record) => record.id)])]);
-      }}>{t(allVisibleSelected ? "deselectAll" : "selectAll")}</button>
-      <button type="button" className="button button-primary" disabled={selectedIds.length === 0} onClick={() => setPrintTarget("selected")}>
-        <FileText size={13} />{t("printSelectedIds")} ({selectedIds.length})
+      }}><Check size={13} /><span>{t(allVisibleSelected ? "deselectAll" : "selectAll")}</span></button>
+      <button type="button" className="button button-primary mobile-icon-button" title={`${t("printSelectedIds")} (${selectedIds.length})`} aria-label={`${t("printSelectedIds")} (${selectedIds.length})`} disabled={selectedIds.length === 0} onClick={() => setPrintTarget("selected")}>
+        <FileText size={13} /><span>{t("printSelectedIds")} ({selectedIds.length})</span>
       </button>
     </div>
     {loading ? <div className="panel loading-state">{t("loading")}</div> : patrons.length ? <>
@@ -2281,7 +2321,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, logoUrl, 
   </div>;
 }
 
-function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, logoUrl, t }: {
+function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, onAddYoutubeVideo, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, logoUrl, t }: {
   page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
   libraryName: string;
@@ -2289,6 +2329,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   onCreate: (patron?: Row) => void; onEdit: (record: Row) => void; onDelete: (record: Row) => void;
   onReturn: (record: Row) => Promise<void>; onCollectFine: (record: Row) => void; onPortalAccount: (record: Row) => void; onScanReturn: () => void; onExport: (format: "xlsx" | "docx") => void;
   onImport: (event: ChangeEvent<HTMLInputElement>) => void; onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void; onPreview: (record: Row) => void;
+  onAddYoutubeVideo: (title: string, url: string, category: string) => Promise<boolean>;
   selectedIds: string[]; onToggleSelected: (id: string) => void; onDeleteSelected: () => void; onReturnSelected: () => void;
   onDeleteBorrowing: (record: Row) => void; onEditBorrowing: (record: Row) => void; onClearHistory: () => void; onLookupError: (message: string) => void; busy: boolean; t: (key: string) => string;
 }) {
@@ -2298,6 +2339,10 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const [patronLoansLoading, setPatronLoansLoading] = useState(false);
   const [idCardPatron, setIdCardPatron] = useState<IDCardPatron | null>(null);
   const [listingViewMode, setListingViewMode] = useState<ViewMode>("list");
+  const [youtubeVideoDialogOpen, setYoutubeVideoDialogOpen] = useState(false);
+  const [youtubeTitle, setYoutubeTitle] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeCategory, setYoutubeCategory] = useState("Other");
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
     page === "teacherBorrowing" ? { title: "teacherBorrowing", description: "", icon: BookOpen } :
     page === "returns" ? { title: "returnBooks", description: "fineCalculated", icon: RotateCcw } : pageConfig[page];
@@ -2377,11 +2422,21 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   return <>
     <div className="page-heading"><div><div className="eyebrow">{libraryName} · {t("adminSettings")}</div><h1 className="page-title">{t(config.title)}</h1>{config.description && <p className="page-description">{t(config.description)}</p>}</div>
       <div className="heading-actions">{isMedia ? <>
+        <button className="button mobile-icon-button" onClick={() => setYoutubeVideoDialogOpen(true)} title={t("addYoutubeVideo")} aria-label={t("addYoutubeVideo")}><Play size={13} /><span>{t("addYoutubeVideo")}</span></button>
         <label className="media-upload-category"><span>{t("category")}</span><select aria-label={t("category")} value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-        <label className="button button-primary"><Plus size={13} />{t("uploadMedia")}<input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={(event) => onUpload(event, uploadCategory)} /></label>
+        <label className="button button-primary mobile-icon-button" title={t("uploadMedia")} aria-label={t("uploadMedia")}><Plus size={13} /><span>{t("uploadMedia")}</span><input type="file" accept=".pdf,.mp3,.wav,.m4a,.ogg" hidden onChange={(event) => onUpload(event, uploadCategory)} /></label>
       </> : isCirculation ? <><button className="button button-primary" onClick={() => onCreate()}><Plus size={13} />{t("issueBooks")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : isReturnPage ? <><button className="button" onClick={onScanReturn}><Camera size={13} />{t("scanToReturn")}</button><button className="button" disabled={busy} onClick={onClearHistory}><Trash2 size={13} />{t("clearHistory")}</button></> : <button className="button button-primary" onClick={() => onCreate()}><Plus size={13} />{page === "books" ? t("addBook") : page === "students" ? t("addStudent") : t("addRecord")}</button>}</div>
     </div>
     <section className="panel">
+      {isMedia && <div className="media-category-tabs" role="tablist" aria-label={t("filterByType")}>
+        {([
+          ["PDF", FileText, "pdfDocuments"],
+          ["AUDIO", FileAudio, "audioFiles"],
+          ["VIDEO", Play, "videos"],
+        ] as const).map(([type, Icon, label]) => <button key={type} type="button" role="tab" aria-selected={statusFilter === type} className={`media-category-tab ${statusFilter === type ? "active" : ""}`} onClick={() => setStatusFilter(statusFilter === type ? "ALL" : type)}>
+          <Icon size={16} /><span>{t(label)}</span>
+        </button>)}
+      </div>}
       <div className="toolbar">
         <div className="toolbar-group" style={{ flex: 1 }}>
           <label className="table-search"><Search size={14} /><input aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -2392,20 +2447,14 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
             <option value="ALL">{t("allCategories")}</option>
             {(page === "media" ? mediaCategories : Array.from(new Set(records.map((record) => toText(record.category).trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right))).map((category) => <option key={category} value={category}>{category}</option>)}
           </select>}
-          {isMedia && <>
-            <select aria-label={t("filterByType")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="ALL">{t("allTypes")}</option><option value="PDF">PDF</option><option value="AUDIO">{t("audio")}</option><option value="VIDEO">{t("video")}</option>
-              {[...new Set(records.map((record) => toText(record.mediaType)))].filter((type) => !["PDF", "AUDIO", "VIDEO"].includes(type)).map((type) => <option key={type} value={type}>{type}</option>)}
-            </select>
-          </>}
         </div>
         <div className="toolbar-group">
           {supportsViewToggle && <ViewModeToggle mode={listingViewMode} onChange={setListingViewMode} t={t} />}
           {isReturnPage && selectedIds.length > 0 && <button className="button button-primary" disabled={busy} onClick={onReturnSelected}><RotateCcw size={12} />{t("returnSelected")} ({selectedIds.length})</button>}
           {isPeople && selectedIds.length > 0 && <button className="button button-danger" onClick={onDeleteSelected}><Trash2 size={12} />{t("deleteSelected")} ({selectedIds.length})</button>}
-          {!isCirculation && !isReturnPage && !isMedia && <label className="button"><Download size={12} />{t("import")}<input type="file" accept=".xlsx,.docx" hidden onChange={onImport} /></label>}
-          {!isReturnPage && !isMedia && <div className="toolbar-group export-actions"><button className="button" title={t("exportExcel")} onClick={() => onExport("xlsx")}><ArrowDownToLine size={12} />{t("exportExcel")}</button><button className="button" title={t("exportWord")} onClick={() => onExport("docx")}><FileText size={12} />{t("exportWord")}</button></div>}
-          <button className="button" onClick={() => { setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><SlidersHorizontal size={12} />{t("filter")}</button>
+          {!isCirculation && !isReturnPage && !isMedia && <label className="button toolbar-icon-button" title={t("import")} aria-label={t("import")}><Download size={12} /><span className="toolbar-icon-label">{t("import")}</span><input type="file" accept=".xlsx,.docx" hidden onChange={onImport} /></label>}
+          {!isReturnPage && !isMedia && <div className="toolbar-group export-actions"><button className="button toolbar-icon-button" title={t("exportExcel")} aria-label={t("exportExcel")} onClick={() => onExport("xlsx")}><ArrowDownToLine size={12} /><span className="toolbar-icon-label">{t("exportExcel")}</span></button><button className="button toolbar-icon-button" title={t("exportWord")} aria-label={t("exportWord")} onClick={() => onExport("docx")}><FileText size={12} /><span className="toolbar-icon-label">{t("exportWord")}</span></button></div>}
+          <button className="button toolbar-icon-button" title={t("filter")} aria-label={t("filter")} onClick={() => { setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><SlidersHorizontal size={12} /><span className="toolbar-icon-label">{t("filter")}</span></button>
         </div>
       </div>
       {isBorrowerSelectionPage && <>
@@ -2431,12 +2480,17 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <div className="panel loading-state">{t("loading")}</div> : records.length ? records.map((record) => {
           const title = toText(record.title || record.name || record.asset || record.fileName);
           const recordDetails = headers.filter(([key]) => key !== "title" && key !== "id").slice(0, 4);
+          const videoId = isMedia ? youtubeVideoId(record.filePath || record.url) : "";
           return <article className="panel record-card" key={record.id}>
             {isPeople && <label className="record-card-select"><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} />{t("selectAll")}</label>}
             <div className="record-card-heading">
               <div className="record-card-icon">{page === "books" ? <BookOpen size={18} /> : page === "examSheets" ? <FileText size={18} /> : isPeople ? <Users size={18} /> : <FileAudio size={18} />}</div>
               <div><h2>{title || "—"}</h2><small>{toText(isPeople ? record.memberCode : record.id)}</small></div>
             </div>
+            {videoId && <button type="button" className="media-video-thumbnail" title={t("playVideo")} aria-label={`${t("playVideo")}: ${title}`} onClick={() => onPreview(record)}>
+              <img src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`} alt="" loading="lazy" />
+              <span><Play size={22} fill="currentColor" /></span>
+            </button>}
             <div className="record-card-details">{recordDetails.map(([key, label]) => <div className="record-card-detail" key={key}>
               <span>{t(label)}</span><strong>{key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : toText(record[key]) || "—"}</strong>
             </div>)}</div>
@@ -2471,12 +2525,30 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         {loading ? <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="loading-state">{t("loading")}</div></td></tr> : records.length ? records.map((record) => <tr key={record.id}>
           {isPeople && <td><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} /></td>}
           {isReturnPage && <td><input type="checkbox" aria-label={`${t("selectBorrowedBooks")}: ${toText(record.title)} · ${toText(record.borrowerName)}`} checked={selectedIds.includes(toText(record.loanItemId || record.id))} onChange={() => onToggleSelected(toText(record.loanItemId || record.id))} /></td>}
-          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "borrowDate" ? formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language) : key === "dueDate" || key === "createdAt" ? formatEthiopianDate(toText(record[key]), i18n.language) : toText(record[key]) || "—"}</td>)}
+          {headers.map(([key]) => <td key={key}>{key === "id" ? toText(isPeople ? record.memberCode || record.id : record.loanItemId || record.id) : key === "status" || key === "condition" || key === "mediaType" ? <Status value={toText(record[key])} t={t} /> : key === "itemType" ? t(record.itemType === "BOOK" ? "book" : "examSheet") : isMedia && key === "category" ? <span className="media-category-badge">{toText(record.category) || "Other"}</span> : key === "title" && isMedia && youtubeVideoId(record.filePath || record.url) ? <button type="button" className="media-table-preview" title={t("playVideo")} onClick={() => onPreview(record)}><img src={`https://img.youtube.com/vi/${youtubeVideoId(record.filePath || record.url)}/hqdefault.jpg`} alt="" loading="lazy" /><span>{toText(record.title)}</span><Play size={14} /></button> : key === "title" && page === "books" ? <div className="book-info"><div className="book-cover">{toText(record.title).slice(0, 1)}</div><div><div className="book-title">{toText(record.title)}</div><div className="book-meta">{toText(record.author)}</div>{secureFileUrl(record.filePath) && <button className="book-file-link" onClick={() => onPreview({ ...record, mediaType: "PDF" })}>{t("openFile")}</button>}</div></div> : key === "fineRemaining" ? formatMoney(record.fineRemaining, t("ethiopianBirr")) : key === "borrowDate" ? formatEthiopianDate(toText(record.borrowDate) || "2026-09-15", i18n.language) : key === "dueDate" || key === "createdAt" ? formatEthiopianDate(toText(record[key]), i18n.language) : toText(record[key]) || "—"}</td>)}
           <td><div style={{ display: "flex", alignItems: "center", gap: 5 }}>{(isCirculation || isReturnPage) && toText(record.status) !== "RETURNED" && <button className="row-action" title={t("returnBook")} aria-label={t("returnBook")} onClick={() => void onReturn(record)}><Check size={14} /></button>}{isCirculation && <><button className="row-action" title={t("edit")} aria-label={t("edit")} disabled={busy} onClick={() => onEditBorrowing(record)}><Pencil size={14} /></button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} disabled={busy} onClick={() => onDeleteBorrowing(record)}><Trash2 size={14} /></button></>}{isCirculation && toFiniteNumber(record.fineRemaining) > 0 && <button className="row-action" title={t("collectFine")} onClick={() => onCollectFine(record)}><CircleDollarSign size={14} /></button>}{isMedia && <><button className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>{toText(record.mediaType) === "PDF" ? <FileText size={14} /> : <FileAudio size={14} />}</button><button className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button></>}{!isCirculation && !isReturnPage && !isMedia && <>{secureFileUrl(record.filePath) && <button className="row-action" title={t("openFile")} aria-label={t("openFile")} onClick={() => onPreview({ ...record, mediaType: "PDF" })}><ExternalLink size={14} /></button>}{isPeople && <><button className="row-action" title={t("generateIdCard")} aria-label={t("generateIdCard")} onClick={() => showIdCard(record)}><QrCode size={14} /></button><button className="row-action" title={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} aria-label={record.hasPortalAccount ? t("resetPortalPassword") : t("setPortalPassword")} onClick={() => onPortalAccount(record)}><KeyRound size={14} /></button></>}{<button className="row-action" title={t("edit")} onClick={() => onEdit(record)}><Settings size={13} /></button>}{<button className="row-action" title={t("delete")} onClick={() => onDelete(record)}><Trash2 size={13} /></button>}</>}</div></td>
         </tr>) : <tr><td colSpan={headers.length + 1 + (isPeople || isReturnPage ? 1 : 0)}><div className="empty-state">{t(isReturnPage ? "noActiveReturns" : "noRecords")}</div></td></tr>}
       </tbody></table></div>
       <div className="table-footer"><span>{records.length} {t("all").toLowerCase()} {t(page === "books" ? "books" : isPeople ? "userManagement" : isCirculation ? "activeLoans" : isReturnPage ? "returnBooks" : isMedia ? "media" : "inventory").toLowerCase()}</span><span>{page === "books" ? t("bookCatalog") : libraryName}</span></div>
     </section>
+    {isMedia && youtubeVideoDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setYoutubeVideoDialogOpen(false); }}>
+      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="youtube-video-title" onSubmit={async (event) => {
+        event.preventDefault();
+        if (await onAddYoutubeVideo(youtubeTitle.trim(), youtubeUrl.trim(), youtubeCategory)) {
+          setYoutubeVideoDialogOpen(false);
+          setYoutubeTitle("");
+          setYoutubeUrl("");
+        }
+      }}>
+        <div className="modal-head"><h2 className="modal-title" id="youtube-video-title">{t("addYoutubeVideo")}</h2><button type="button" className="row-action" aria-label={t("cancel")} onClick={() => setYoutubeVideoDialogOpen(false)}><X size={17} /></button></div>
+        <div className="form-grid">
+          <label className="field"><span>{t("title")}</span><input required maxLength={200} value={youtubeTitle} onChange={(event) => setYoutubeTitle(event.target.value)} /></label>
+          <label className="field"><span>{t("youtubeUrl")}</span><input required type="url" placeholder="https://youtu.be/..." value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} /><small className="form-help">{t("youtubeUrlHelp")}</small></label>
+          <label className="field"><span>{t("category")}</span><select value={youtubeCategory} onChange={(event) => setYoutubeCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="button" onClick={() => setYoutubeVideoDialogOpen(false)}>{t("cancel")}</button><button type="submit" className="button button-primary" disabled={busy || !youtubeVideoId(youtubeUrl)}>{t("addYoutubeVideo")}</button></div>
+      </form>
+    </div>}
     {idCardPatron && <div className="modal-backdrop id-card-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIdCardPatron(null); }}>
       <div className="modal id-card-modal" role="dialog" aria-modal="true" aria-label={t("generateIdCard")}>
         <div className="modal-head id-card-controls"><div className="modal-title">{t("generateIdCard")}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setIdCardPatron(null)}><X size={17} /></button></div>

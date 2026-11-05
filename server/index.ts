@@ -1763,6 +1763,42 @@ app.get("/api/media", asyncRoute(async (req, res) => {
   })));
 }));
 
+app.post("/api/media/youtube", requireStaff, asyncRoute(async (req, res) => {
+  const title = optionalText(req.body.title);
+  if (!title) throw new ApiError(400, "A video title is required.");
+  let url: URL;
+  try {
+    url = new URL(typeof req.body.url === "string" ? req.body.url : "");
+  } catch {
+    throw new ApiError(400, "Enter a valid YouTube video URL.");
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  let videoId = "";
+  if ((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && host === "youtu.be") {
+    videoId = url.pathname.split("/").filter(Boolean)[0] || "";
+  } else if ((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && ["youtube.com", "m.youtube.com", "youtube-nocookie.com"].includes(host)) {
+    videoId = url.searchParams.get("v") || url.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?]+)/)?.[1] || "";
+  }
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    throw new ApiError(400, "Enter a valid YouTube video URL.");
+  }
+  url.protocol = "https:";
+  const allowedCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+  const category = typeof req.body.category === "string" ? req.body.category.trim() : "Other";
+  if (!allowedCategories.includes(category)) throw new ApiError(400, "Choose a valid media category.");
+  const media = await prisma.mediaAsset.create({ data: {
+    title,
+    mediaType: "VIDEO",
+    category,
+    fileName: `YouTube-${videoId}`,
+    mimeType: "video/youtube",
+    filePath: url.href,
+    fileSize: 0,
+  } });
+  await audit(req, "CREATE", "MEDIA", media.id);
+  res.status(201).json(media);
+}));
+
 app.post("/api/media/upload", cloudinaryUpload.single("file"), asyncRoute(async (req, res) => {
   if (!req.file) { res.status(400).json({ error: "A media file is required." }); return; }
   const extension = path.extname(req.file.originalname).toLowerCase();

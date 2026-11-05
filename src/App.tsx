@@ -27,6 +27,7 @@ const isCrudPage = (page: Page): page is CrudPage =>
   page === "books" || page === "examSheets" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
 type ViewMode = "grid" | "list";
+type PortalMediaType = "PDF" | "AUDIO" | "VIDEO";
 type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
 type Stats = {
   totalBooks: number; totalExamSheets: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
@@ -51,6 +52,15 @@ const youtubeVideoId = (value: unknown) => {
     return "";
   }
 };
+function portalMediaType(item: Row): PortalMediaType | null {
+  const filePath = toText(item.filePath || item.url);
+  const mediaType = toText(item.mediaType).toUpperCase();
+  const mimeType = toText(item.mimeType).toLowerCase();
+  if (mediaType === "VIDEO" || youtubeVideoId(filePath)) return "VIDEO";
+  if (mediaType === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath)) return "PDF";
+  if (mediaType === "AUDIO" || mimeType.startsWith("audio/")) return "AUDIO";
+  return null;
+}
 const EMPTY_STATS: Stats = {
   totalBooks: 0,
   totalExamSheets: 0,
@@ -1827,6 +1837,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations">("dashboard");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [books, setBooks] = useState<Row[]>([]);
   const [examSheets, setExamSheets] = useState<Row[]>([]);
   const [loans, setLoans] = useState<Row[]>([]);
@@ -1836,6 +1847,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const [bookCategories, setBookCategories] = useState<string[]>([]);
   const [bookCategoryFilter, setBookCategoryFilter] = useState("ALL");
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<"ALL" | "BOOK" | "EXAM_SHEET">("ALL");
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<"ALL" | PortalMediaType>("ALL");
   const [portalViewMode, setPortalViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
   const [error, setError] = useState("");
@@ -1925,9 +1937,9 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     })),
     ...media.map((item): Row => ({ ...item, key: `media:${item.id}` })),
   ].sort((left, right) => toText(left.title).localeCompare(toText(right.title)));
-  const digitalMediaItems = catalogTypeFilter === "ALL"
+  const digitalMediaItems = mediaTypeFilter === "ALL"
     ? allDigitalMediaItems
-    : allDigitalMediaItems.filter((item) => toText(item.key).startsWith(catalogTypeFilter === "BOOK" ? "book:" : "exam-sheet:"));
+    : allDigitalMediaItems.filter((item) => portalMediaType(item) === mediaTypeFilter);
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -1964,6 +1976,11 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
       const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
       const filePath = toText(item.filePath || item.url);
+      const videoId = youtubeVideoId(filePath);
+      if (videoId) {
+        setPreview({ title: toText(item.title), type: "VIDEO", url: `https://www.youtube-nocookie.com/embed/${videoId}` });
+        return;
+      }
       const mimeType = toText(item.mimeType).toLowerCase();
       const isPdf = toText(item.mediaType).toUpperCase() === "PDF" || mimeType === "application/pdf" || /\.pdf(?:$|[?#])/i.test(filePath);
       const type = isPdf ? "PDF"
@@ -1984,27 +2001,49 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     }
   }
 
+  const portalNavigation = [
+    { id: "dashboard", label: t("dashboard"), icon: LayoutDashboard },
+    { id: "catalog", label: t("catalogPortal"), icon: BookOpen },
+    { id: "digitalMedia", label: t("digitalMedia"), icon: FileText },
+    { id: "loans", label: t("myLoans"), icon: ArrowUpFromLine },
+    { id: "reservations", label: t("myReservations"), icon: BookMarked },
+  ] as const;
+  const userInitials = user.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
+
   return <div className="portal-shell">
-    <header className="topbar portal-topbar">
+    {menuOpen && <button type="button" className="portal-sidebar-scrim" aria-label={t("closeMenu")} onClick={() => setMenuOpen(false)} />}
+    <aside className={`portal-sidebar ${menuOpen ? "open" : ""}`}>
       <Brand libraryName={libraryName} logoUrl={logoUrl} />
-      <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
-        <InstallAppControl t={t} />
-        <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
-        <button className="lang-button" aria-label={t("language")} title={t("language")} onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
-        <button className="button" onClick={onSignOut}><LogOut size={13} /><span className="hide-mobile">{t("signOut")}</span></button>
+      <div className="nav-caption">{t("overview")}</div>
+      <nav className="portal-nav-list" aria-label={t("overview")}>
+        {portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`portal-nav-item ${tab === id ? "active" : ""}`}
+          aria-current={tab === id ? "page" : undefined} onClick={() => { setTab(id); setMenuOpen(false); }}>
+          <Icon size={16} strokeWidth={1.8} /><span>{label}</span>
+          {id === "reservations" && activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}
+        </button>)}
+      </nav>
+      <div className="portal-sidebar-profile">
+        <div className="portal-sidebar-avatar">{userInitials || "U"}</div>
+        <div className="portal-sidebar-user"><strong>{user.name}</strong><span>{t(user.patronType === "TEACHER" ? "teacherRole" : "studentRole")}</span></div>
       </div>
-    </header>
-    <main className="portal-content">
+    </aside>
+    <div className="portal-main">
+      <header className="topbar portal-topbar">
+        <div className="portal-topbar-brand">
+          <button type="button" className="portal-menu-toggle" aria-label={t(menuOpen ? "closeMenu" : "openMenu")} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Menu size={19} /></button>
+          <Brand libraryName={libraryName} logoUrl={logoUrl} />
+        </div>
+        <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
+          <InstallAppControl t={t} />
+          <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
+          <button className="lang-button" aria-label={t("language")} title={t("language")} onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
+          <button className="button" onClick={onSignOut}><LogOut size={13} /><span className="hide-mobile">{t("signOut")}</span></button>
+        </div>
+      </header>
+      <main className="portal-content">
       <div className="page-heading"><div><div className="eyebrow">{t(user.patronType === "TEACHER" ? "teacherPortal" : "studentPortal")}</div><h1 className="page-title">{t("welcomeMember")}, {user.name}</h1><p className="page-description">{t("portalDescription")}</p></div></div>
       {error && <div className="notice" role="alert">{error}<button className="row-action" style={{ float: "right" }} onClick={() => setError("")}><X size={13} /></button></div>}
       {success && <div className="notice notice-success" role="status">{success}<button className="row-action" style={{ float: "right" }} onClick={() => setSuccess("")}><X size={13} /></button></div>}
-      <div className="portal-tabs">
-        <button className={`nav-item ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}><LayoutDashboard size={15} />{t("dashboard")}</button>
-        <button className={`nav-item ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}><BookOpen size={15} />{t("catalogPortal")}</button>
-        <button className={`nav-item ${tab === "digitalMedia" ? "active" : ""}`} onClick={() => setTab("digitalMedia")}><FileText size={15} />{t("digitalMedia")}</button>
-        <button className={`nav-item ${tab === "loans" ? "active" : ""}`} onClick={() => setTab("loans")}><ArrowUpFromLine size={15} />{t("myLoans")}</button>
-        <button className={`nav-item ${tab === "reservations" ? "active" : ""}`} onClick={() => setTab("reservations")}><BookMarked size={15} />{t("myReservations")}{activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}</button>
-      </div>
       <div key={tab} className="page-transition">
         {tab === "dashboard" && <>
           <div className="portal-stats-grid">
@@ -2047,12 +2086,19 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
           <PortalMediaSection media={media} loading={loading.media} onOpen={openMedia} t={t} />
         </>}
         {tab === "digitalMedia" && <>
+          <div className="media-category-tabs portal-media-category-tabs" role="tablist" aria-label={t("filterByType")}>
+            {([
+              ["PDF", FileText, "pdfDocuments"],
+              ["AUDIO", FileAudio, "audioFiles"],
+              ["VIDEO", Play, "videos"],
+            ] as const).map(([type, Icon, label]) => <button key={type} type="button" role="tab" aria-selected={mediaTypeFilter === type}
+              className={`media-category-tab ${mediaTypeFilter === type ? "active" : ""}`}
+              onClick={() => setMediaTypeFilter(mediaTypeFilter === type ? "ALL" : type)}>
+              <Icon size={17} /><span>{t(label)}</span>
+            </button>)}
+          </div>
           <section className="panel portal-search-panel">
             <label className="table-search"><Search size={14} /><input aria-label={t("searchDigitalMedia")} placeholder={t("searchDigitalMedia")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-            <select aria-label={t("filterCatalogType")} className="select-control" value={catalogTypeFilter} onChange={(event) => {
-              const value = event.target.value;
-              if (value === "ALL" || value === "BOOK" || value === "EXAM_SHEET") setCatalogTypeFilter(value);
-            }}><option value="ALL">{t("allItems")}</option><option value="BOOK">{t("booksOnly")}</option><option value="EXAM_SHEET">{t("examSheetsOnly")}</option></select>
             <span>{loading.catalog || loading.media ? "…" : digitalMediaItems.length} {t("digitalMedia").toLowerCase()}</span>
             <ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} />
           </section>
@@ -2077,12 +2123,14 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     {preview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
       <div className="modal" role="dialog" aria-modal="true" style={{ width: "min(900px,100%)" }}>
         <div className="modal-head"><div className="modal-title">{preview.title}</div><button className="row-action" aria-label={t("cancel")} onClick={() => setPreview(null)}><X size={17} /></button></div>
-        {preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
+        {preview.type === "VIDEO" ? <iframe title={preview.title} src={preview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+          : preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} style={{ width: "100%", height: "70vh", border: "1px solid #edf0f1", borderRadius: 6 }} />
           : preview.type === "IMAGE" ? <img alt={preview.title} src={preview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
             : preview.type === "AUDIO" ? <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
               : <a className="button" href={preview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
       </div>
     </div>}
+    </div>
   </div>;
 }
 
@@ -2112,7 +2160,7 @@ function PortalMediaSection({ media, loading, onOpen, t, viewMode = "list" }: {
   return <section className="panel portal-media-panel">
     <div className="panel-head"><div><div className="panel-title">{t("digitalResources")}</div><div className="panel-subtitle">{t("digitalResourcesHelp")}</div></div></div>
     {loading ? <div className="loading-state">{t("loading")}</div> : media.length ? <div className={`portal-media-grid ${viewMode === "grid" ? "is-grid" : "is-list"}`}>{media.map((item) => <article className="portal-media-item" key={toText(item.key) || item.id}>
-      <div className="portal-media-icon">{toText(item.mediaType) === "PDF" ? <FileText size={17} /> : toText(item.mediaType) === "AUDIO" ? <FileAudio size={17} /> : <BookOpen size={17} />}</div>
+      <div className="portal-media-icon">{portalMediaType(item) === "PDF" ? <FileText size={17} /> : portalMediaType(item) === "AUDIO" ? <FileAudio size={17} /> : portalMediaType(item) === "VIDEO" ? <Play size={17} /> : <BookOpen size={17} />}</div>
       <div className="portal-media-info"><small>{t("id")}: {toText(item.id)}</small><strong>{toText(item.title)}</strong><small>{toText(item.author) || toText(item.mediaType)}</small><span className="media-category-badge">{toText(item.category) || "Other"}</span></div>
       <button className="button" onClick={() => void onOpen(item)}>{t(toText(item.mediaType).toUpperCase() === "PDF" ? "openFile" : "previewMedia")}</button>
     </article>)}</div> : <div className="empty-state">{t("noDigitalResources")}</div>}

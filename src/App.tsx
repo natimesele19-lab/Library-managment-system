@@ -222,28 +222,6 @@ function resourceCoverImage(record: Row) {
     : undefined;
   return secureFileUrl(record.coverImage || record.coverUrl || record.coverPath || customCover);
 }
-function isMobilePdfViewer() {
-  return window.matchMedia("(max-width: 760px)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
-function tryOpenPdfInMobileTab(fileUrl: string, loadFile: () => Promise<Blob>, onError: (message: string) => void) {
-  if (!isMobilePdfViewer()) return false;
-  const tab = window.open("about:blank", "_blank");
-  if (!tab) return false;
-  tab.opener = null;
-  if (fileUrl) {
-    tab.location.replace(fileUrl);
-    return true;
-  }
-  void loadFile().then((file) => {
-    const url = URL.createObjectURL(file);
-    tab.location.replace(url);
-    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
-  }).catch((cause: unknown) => {
-    tab.close();
-    onError(cause instanceof Error ? cause.message : "Unable to open this PDF.");
-  });
-  return true;
-}
 const isCloudinaryUrl = (value: unknown) => {
   if (typeof value !== "string") return false;
   try {
@@ -296,12 +274,11 @@ function MediaPreviewDialog({ preview, onClose, t }: {
   }
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="modal media-preview-modal" role="dialog" aria-modal="true" ref={viewerRef}>
+    <div className={`modal media-preview-modal ${preview.type === "PDF" ? "media-preview-pdf-modal" : ""}`} role="dialog" aria-modal="true" ref={viewerRef}>
       <div className="modal-head">
         <div className="modal-title">{preview.title}</div>
         <div className="media-preview-controls">
           {preview.type === "PDF" && <>
-            <a className="button media-preview-open" href={preview.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /><span>{t("openFile")}</span></a>
             <button type="button" className="button media-preview-fullscreen" onClick={() => void toggleFullscreen()} aria-label={t(fullscreen ? "exitFullScreen" : "fullScreen")} title={t(fullscreen ? "exitFullScreen" : "fullScreen")}>
               {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>{t(fullscreen ? "exitFullScreen" : "fullScreen")}</span>
             </button>
@@ -1474,7 +1451,6 @@ function App() {
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
       const fileEndpoint = page === "books" ? `/books/${record.id}/file` : page === "examSheets" ? `/exam-sheets/${record.id}/file` : `/media/${record.id}/file`;
-      if (isPdf && tryOpenPdfInMobileTab(isCloudinaryUrl(storedUrl) ? "" : storedUrl, () => download(fileEndpoint), setError)) return;
       const url = isPdf && (isCloudinaryUrl(record.filePath) || isCloudinaryUrl(record.url))
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));
@@ -2058,10 +2034,15 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     }
   }
 
+  function closePreview() {
+    if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  }
+
   async function openMedia(item: Row) {
     setError("");
+    closePreview();
     try {
-      if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url);
       const storedUrl = secureFileUrl(item.filePath) || secureFileUrl(item.url);
       const filePath = toText(item.filePath || item.url);
       const videoId = youtubeVideoId(filePath);
@@ -2080,7 +2061,6 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
         : item.catalogType === "EXAM_SHEET" || key.startsWith("exam-sheet:")
           ? `/exam-sheets/${item.id}/file`
           : `/media/${item.id}/file`;
-      if (isPdf && tryOpenPdfInMobileTab(isCloudinaryUrl(storedUrl) ? "" : storedUrl, () => download(fileEndpoint), (message) => setError(message))) return;
       const url = isPdf && (isCloudinaryUrl(item.filePath) || isCloudinaryUrl(item.url))
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));
@@ -2220,7 +2200,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       </div>
       {t("footerNotice") && <footer className="app-footer">{t("footerNotice")}</footer>}
     </main>
-    {preview && <MediaPreviewDialog preview={preview} onClose={() => setPreview(null)} t={t} />}
+    {preview && <MediaPreviewDialog preview={preview} onClose={closePreview} t={t} />}
     </div>
   </div>;
 }

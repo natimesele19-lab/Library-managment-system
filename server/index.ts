@@ -1660,7 +1660,13 @@ const uploadLibraryFile = asyncRoute(async (req, res) => {
 app.post("/api/upload", requireStaff, cloudinaryUpload.single("file"), uploadLibraryFile);
 app.post("/api/platform/upload", requirePlatformAdmin, cloudinaryUpload.single("file"), tenantRoute("default", uploadLibraryFile));
 
-function cloudinaryPrivatePdfDownloadUrl(filePath: string): string | null {
+function cloudinaryPdfDeliveryInfo(filePath: string): {
+  publicUrl: string;
+  resourceType: string;
+  deliveryType: string;
+  publicId: string;
+  extension: string;
+} | null {
   let url: URL;
   try {
     url = new URL(filePath);
@@ -1668,7 +1674,7 @@ function cloudinaryPrivatePdfDownloadUrl(filePath: string): string | null {
     return null;
   }
   if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com") return null;
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  if (!process.env.CLOUDINARY_CLOUD_NAME) {
     throw new ApiError(503, "Cloudinary PDF delivery is not configured.");
   }
 
@@ -1689,10 +1695,17 @@ function cloudinaryPrivatePdfDownloadUrl(filePath: string): string | null {
   const extension = path.extname(publicIdWithExtension).slice(1).toLowerCase();
   if (extension !== "pdf") throw new ApiError(415, "The stored Cloudinary asset is not a PDF.");
   const publicId = resourceType === "raw" ? publicIdWithExtension : publicIdWithExtension.slice(0, -4);
+  const publicUrl = `${url.origin}/${parts[0]}/${resourceType}/upload/${parts[versionIndex]}/${publicIdWithExtension}`;
+  return { publicUrl, resourceType, deliveryType, publicId, extension };
+}
 
-  return cloudinary.utils.private_download_url(publicId, resourceType === "raw" ? "" : extension, {
-    resource_type: resourceType,
-    type: deliveryType,
+function cloudinaryPrivatePdfDownloadUrl(info: NonNullable<ReturnType<typeof cloudinaryPdfDeliveryInfo>>): string {
+  if (!process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    throw new ApiError(503, "Cloudinary PDF delivery is not configured.");
+  }
+  return cloudinary.utils.private_download_url(info.publicId, info.resourceType === "raw" ? "" : info.extension, {
+    resource_type: info.resourceType,
+    type: info.deliveryType,
     expires_at: Math.floor(Date.now() / 1000) + 300,
     attachment: false,
   });
@@ -1707,14 +1720,23 @@ function isCloudinaryHost(filePath: string): boolean {
 }
 
 async function proxyCloudinaryPdf(filePath: string, res: Response): Promise<boolean> {
-  const downloadUrl = cloudinaryPrivatePdfDownloadUrl(filePath);
-  if (!downloadUrl) return false;
+  const delivery = cloudinaryPdfDeliveryInfo(filePath);
+  if (!delivery) return false;
 
   let upstream: Awaited<ReturnType<typeof fetch>>;
   try {
-    upstream = await fetch(downloadUrl);
+    upstream = await fetch(delivery.publicUrl);
   } catch {
     throw new ApiError(502, "Unable to retrieve the PDF from Cloudinary.");
+  }
+  if ((upstream.status === 401 || upstream.status === 403) &&
+      process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+    const privateDownloadUrl = cloudinaryPrivatePdfDownloadUrl(delivery);
+    try {
+      upstream = await fetch(privateDownloadUrl);
+    } catch {
+      throw new ApiError(502, "Unable to retrieve the PDF from Cloudinary.");
+    }
   }
   if (!upstream.ok) {
     throw new ApiError(502, `Cloudinary refused PDF delivery (HTTP ${upstream.status}).`);

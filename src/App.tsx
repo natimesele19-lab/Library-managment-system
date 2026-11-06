@@ -1474,7 +1474,7 @@ function App() {
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
       const fileEndpoint = page === "books" ? `/books/${record.id}/file` : page === "examSheets" ? `/exam-sheets/${record.id}/file` : `/media/${record.id}/file`;
-      if (isPdf && tryOpenPdfInMobileTab(storedUrl, () => download(fileEndpoint), setError)) return;
+      if (isPdf && tryOpenPdfInMobileTab(isCloudinaryUrl(storedUrl) ? "" : storedUrl, () => download(fileEndpoint), setError)) return;
       const url = isPdf && (isCloudinaryUrl(record.filePath) || isCloudinaryUrl(record.url))
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));
@@ -2066,7 +2066,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       const filePath = toText(item.filePath || item.url);
       const videoId = youtubeVideoId(filePath);
       if (videoId) {
-        setPreview({ title: toText(item.title), type: "VIDEO", url: `https://www.youtube-nocookie.com/embed/${videoId}` });
+        setPreview({ title: toText(item.title), type: "VIDEO", url: `https://www.youtube-nocookie.com/embed/${videoId}`, videoId });
         return;
       }
       const mimeType = toText(item.mimeType).toLowerCase();
@@ -2080,7 +2080,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
         : item.catalogType === "EXAM_SHEET" || key.startsWith("exam-sheet:")
           ? `/exam-sheets/${item.id}/file`
           : `/media/${item.id}/file`;
-      if (isPdf && tryOpenPdfInMobileTab(storedUrl, () => download(fileEndpoint), (message) => setError(message))) return;
+      if (isPdf && tryOpenPdfInMobileTab(isCloudinaryUrl(storedUrl) ? "" : storedUrl, () => download(fileEndpoint), (message) => setError(message))) return;
       const url = isPdf && (isCloudinaryUrl(item.filePath) || isCloudinaryUrl(item.url))
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));

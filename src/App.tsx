@@ -132,7 +132,20 @@ const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; secti
   { page: "settings", icon: Settings, label: "settings", section: "main" },
 ];
 
-const mediaCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+const mediaCategories = ["Textbooks", "Course Materials", "Exam Sheets", "Fiction", "Others"];
+const pdfCategoryBoxes = ["Textbooks", "Course Materials", "Exam Sheets", "Fiction", "Others"];
+const videoGradeCategories = Array.from({ length: 12 }, (_, index) => `Grade ${index + 1}`);
+function normalizedPdfCategory(item: Row): string {
+  const key = toText(item.key);
+  if (key.startsWith("exam-sheet:")) return "Exam Sheets";
+  const category = toText(item.category).trim().toLowerCase();
+  if (category === "textbook" || category === "textbooks") return "Textbooks";
+  if (category === "course material" || category === "course materials") return "Course Materials";
+  if (category === "exam sheet" || category === "exam sheets") return "Exam Sheets";
+  if (category === "fiction") return "Fiction";
+  if (key.startsWith("book:")) return "Textbooks";
+  return "Others";
+}
 
 const pageConfig: Record<CrudPage, {
   endpoint: string; title: string; description: string; icon: typeof BookOpen; fields: FormField[];
@@ -1118,7 +1131,9 @@ function App() {
       const search = query.trim().toLowerCase();
       return records.filter((record) =>
         (statusFilter === "ALL" || toText(record.mediaType).toUpperCase() === statusFilter) &&
-        (mediaCategoryFilter === "ALL" || toText(record.category) === mediaCategoryFilter) &&
+        (mediaCategoryFilter === "ALL" || (statusFilter === "PDF"
+          ? normalizedPdfCategory(record) === mediaCategoryFilter
+          : toText(record.category) === mediaCategoryFilter)) &&
         (!search || [record.title, record.author, record.fileName, record.mediaType, record.category].some((value) => toText(value).toLowerCase().includes(search))),
       );
     }
@@ -2023,7 +2038,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   user: Account; libraryName: string; logoUrl: string; darkMode: boolean; onToggleTheme: () => void; onSignOut: () => void;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations" | "notifications">("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("library-sidebar-collapsed") === "true");
   const [books, setBooks] = useState<Row[]>([]);
@@ -2036,6 +2051,8 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const [bookCategoryFilter, setBookCategoryFilter] = useState("ALL");
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<"ALL" | "BOOK" | "EXAM_SHEET">("ALL");
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"ALL" | PortalMediaType>("ALL");
+  const [pdfCategoryFilter, setPdfCategoryFilter] = useState("ALL");
+  const [videoGradeFilter, setVideoGradeFilter] = useState("ALL");
   const [portalViewMode, setPortalViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState({ catalog: true, loans: true, reservations: true, media: true });
   const [error, setError] = useState("");
@@ -2099,6 +2116,28 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     return () => { cancelled = true; };
   }, [t]);
 
+  useEffect(() => {
+    if (tab !== "notifications") return;
+    let cancelled = false;
+    const refreshNotifications = async () => {
+      try {
+        const [loanResults, bookResults, examSheetResults, mediaResults] = await Promise.all([
+          api.get<Row[]>("/portal/loans"), api.get<Row[]>("/books"), api.get<Row[]>("/exam-sheets"), api.get<Row[]>("/media"),
+        ]);
+        if (cancelled) return;
+        setLoans(loanResults);
+        setBooks(bookResults);
+        setExamSheets(examSheetResults);
+        setMedia(mediaResults);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : t("apiOffline"));
+      }
+    };
+    void refreshNotifications();
+    const interval = window.setInterval(() => { void refreshNotifications(); }, 60_000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [tab, t]);
+
   useEffect(() => () => { if (preview?.url.startsWith("blob:")) URL.revokeObjectURL(preview.url); }, [preview]);
 
   const changeLanguage = () => { void i18n.changeLanguage(i18n.language === "en" ? "am" : "en"); };
@@ -2128,6 +2167,25 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const digitalMediaItems = mediaTypeFilter === "ALL"
     ? allDigitalMediaItems
     : allDigitalMediaItems.filter((item) => portalMediaType(item) === mediaTypeFilter);
+  const filteredDigitalMediaItems = digitalMediaItems.filter((item) => {
+    const type = portalMediaType(item);
+    if (type === "PDF" && mediaTypeFilter === "PDF") return pdfCategoryFilter === "ALL" || normalizedPdfCategory(item) === pdfCategoryFilter;
+    if (type === "VIDEO" && mediaTypeFilter === "VIDEO") return videoGradeFilter === "ALL" || toText(item.category) === videoGradeFilter;
+    return true;
+  });
+  const portalNotifications = [
+    ...activeLoans.flatMap((loan) => {
+      const dueDate = new Date(toText(loan.dueDate));
+      const daysUntilDue = Math.ceil((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+      if (loan.status === "OVERDUE") return [{ id: `overdue-${loan.id}`, title: t("overdue"), description: `${toText(loan.title)} · ${t("dueDate")}: ${toText(loan.dueDate).slice(0, 10)}`, kind: "alert" }];
+      if (Number.isFinite(daysUntilDue) && daysUntilDue >= 0 && daysUntilDue <= 7) return [{ id: `due-${loan.id}`, title: t("dueSoon"), description: `${toText(loan.title)} · ${t("dueDate")}: ${toText(loan.dueDate).slice(0, 10)}`, kind: "loan" }];
+      return [];
+    }),
+    ...allDigitalMediaItems.filter((item) => {
+      const createdAt = new Date(toText(item.createdAt)).getTime();
+      return Number.isFinite(createdAt) && Date.now() - createdAt <= 14 * 86_400_000;
+    }).map((item) => ({ id: `resource-${item.key || item.id}`, title: t("newResource"), description: toText(item.title), kind: "resource" })),
+  ];
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -2200,6 +2258,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
     { id: "digitalMedia", label: t("digitalMedia"), icon: FileText },
     { id: "loans", label: t("myLoans"), icon: ArrowUpFromLine },
     { id: "reservations", label: t("myReservations"), icon: BookMarked },
+    { id: "notifications", label: t("notifications"), icon: Bell },
   ] as const;
   const userInitials = user.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
 
@@ -2224,6 +2283,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
           aria-current={tab === id ? "page" : undefined} aria-label={label} title={label} onClick={() => { setTab(id); setMenuOpen(false); }}>
           <Icon size={16} strokeWidth={1.8} /><span>{label}</span>
           {id === "reservations" && activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}
+          {id === "notifications" && portalNotifications.length > 0 && <span className="nav-count">{portalNotifications.length}</span>}
         </button>)}
       </nav>
       <div className="portal-sidebar-profile">
@@ -2238,6 +2298,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
           <Brand libraryName={libraryName} logoUrl={logoUrl} />
         </div>
         <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
+          <button type="button" className={`icon-button portal-notification-button ${tab === "notifications" ? "active" : ""}`} aria-label={t("notifications")} title={t("notifications")} onClick={() => setTab("notifications")}><Bell size={16} />{portalNotifications.length > 0 && <span className="notify-dot" />}</button>
           <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
           <button className="lang-button" aria-label={t("language")} title={t("language")} onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
@@ -2306,8 +2367,21 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
             <span>{loading.catalog || loading.media ? "…" : digitalMediaItems.length} {t("digitalMedia").toLowerCase()}</span>
             <ViewModeToggle mode={portalViewMode} onChange={setPortalViewMode} t={t} />
           </section>
-          <PortalMediaSection media={digitalMediaItems} loading={loading.catalog || loading.media} onOpen={openMedia} t={t} viewMode={portalViewMode} />
+          {mediaTypeFilter === "PDF" && <div className="resource-category-grid" role="group" aria-label={t("filterByCategory")}>
+            {["ALL", ...pdfCategoryBoxes].map((category) => <button key={category} type="button" className={`resource-category-box ${pdfCategoryFilter === category ? "active" : ""}`} aria-pressed={pdfCategoryFilter === category} onClick={() => setPdfCategoryFilter(category)}>{category === "ALL" ? t("allCategories") : t(category === "Textbooks" ? "categoryTextbooks" : category === "Course Materials" ? "courseMaterials" : category === "Exam Sheets" ? "examSheets" : category === "Fiction" ? "categoryFiction" : "categoryOthers")}</button>)}
+          </div>}
+          {mediaTypeFilter === "VIDEO" && <div className="resource-category-grid video-grade-grid" role="group" aria-label={t("filterVideosByGrade")}>
+            {["ALL", ...videoGradeCategories].map((grade) => <button key={grade} type="button" className={`resource-category-box ${videoGradeFilter === grade ? "active" : ""}`} aria-pressed={videoGradeFilter === grade} onClick={() => setVideoGradeFilter(grade)}>{grade === "ALL" ? t("allGrades") : grade}</button>)}
+          </div>}
+          <PortalMediaSection media={filteredDigitalMediaItems} loading={loading.catalog || loading.media} onOpen={openMedia} t={t} viewMode={portalViewMode} />
         </>}
+        {tab === "notifications" && <section className="portal-notifications" aria-label={t("notifications")}>
+          <div className="page-heading"><div><div className="eyebrow">{t(user.patronType === "TEACHER" ? "teacherPortal" : "studentPortal")}</div><h2 className="page-title">{t("notifications")}</h2><p className="page-description">{t("portalNotificationsDescription")}</p></div></div>
+          {portalNotifications.length ? <div className="portal-notification-feed">{portalNotifications.map((notification) => <article className={`portal-notification-card ${notification.kind}`} key={notification.id}>
+            <span className="portal-notification-icon">{notification.kind === "alert" ? <CircleAlert size={17} /> : notification.kind === "loan" ? <Clock3 size={17} /> : <Activity size={17} />}</span>
+            <div><h3>{notification.title}</h3><p>{notification.description}</p></div>
+          </article>)}</div> : <div className="panel empty-state">{t("noNotifications")}</div>}
+        </section>}
         {tab === "loans" && <div className="portal-loans-stack">
           <PortalLoanTable loans={activeLoans} loading={loading.loans} emptyLabel={t("noActiveLoans")} t={t} />
           <PortalLoanTable loans={loanHistory} loading={loading.loans} emptyLabel={t("noLoanHistory")} history t={t} />
@@ -2605,7 +2679,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
   const [youtubeVideoDialogOpen, setYoutubeVideoDialogOpen] = useState(false);
   const [youtubeTitle, setYoutubeTitle] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [youtubeCategory, setYoutubeCategory] = useState("Other");
+  const [youtubeCategory, setYoutubeCategory] = useState("Grade 1");
   const config = page === "circulation" ? { title: "borrowBooks", description: "", icon: ArrowUpFromLine } :
     page === "teacherBorrowing" ? { title: "teacherBorrowing", description: "", icon: BookOpen } :
     page === "returns" ? { title: "returnBooks", description: "fineCalculated", icon: RotateCcw } : pageConfig[page];
@@ -2674,7 +2748,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
       department: toText(record.department) || null,
     });
   }
-  const [uploadCategory, setUploadCategory] = useState("Other");
+  const [uploadCategory, setUploadCategory] = useState("Others");
   const headers = isCirculation || isReturnPage
     ? [["id", "id"], ["title", "title"], ["itemType", "itemType"], ["borrowerName", "borrower"], ["memberCode", "memberCode"], ["borrowDate", "borrowDate"], ["dueDate", "dueDate"], ["status", "status"], ["fineRemaining", "fine"]]
     : isPeople
@@ -2696,13 +2770,19 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
     </div>
     <section className="panel">
       {isMedia && <div className="media-category-tabs" role="tablist" aria-label={t("filterByType")}>
-        {([
+        {([ 
           ["PDF", FileText, "pdfDocuments"],
           ["AUDIO", FileAudio, "audioFiles"],
           ["VIDEO", Play, "videos"],
-        ] as const).map(([type, Icon, label]) => <button key={type} type="button" role="tab" aria-selected={statusFilter === type} className={`media-category-tab ${statusFilter === type ? "active" : ""}`} onClick={() => setStatusFilter(statusFilter === type ? "ALL" : type)}>
+        ] as const).map(([type, Icon, label]) => <button key={type} type="button" role="tab" aria-selected={statusFilter === type} className={`media-category-tab ${statusFilter === type ? "active" : ""}`} onClick={() => { setStatusFilter(statusFilter === type ? "ALL" : type); setMediaCategoryFilter("ALL"); }}>
           <Icon size={17} /><span>{t(label)}</span>
         </button>)}
+      </div>}
+      {isMedia && statusFilter === "PDF" && <div className="resource-category-grid" role="group" aria-label={t("filterByCategory")}>
+        {["ALL", ...pdfCategoryBoxes].map((category) => <button key={category} type="button" className={`resource-category-box ${mediaCategoryFilter === category ? "active" : ""}`} aria-pressed={mediaCategoryFilter === category} onClick={() => setMediaCategoryFilter(category)}>{category === "ALL" ? t("allCategories") : t(category === "Textbooks" ? "categoryTextbooks" : category === "Course Materials" ? "courseMaterials" : category === "Exam Sheets" ? "examSheets" : category === "Fiction" ? "categoryFiction" : "categoryOthers")}</button>)}
+      </div>}
+      {isMedia && statusFilter === "VIDEO" && <div className="resource-category-grid video-grade-grid" role="group" aria-label={t("filterVideosByGrade")}>
+        {["ALL", ...videoGradeCategories].map((grade) => <button key={grade} type="button" className={`resource-category-box ${mediaCategoryFilter === grade ? "active" : ""}`} aria-pressed={mediaCategoryFilter === grade} onClick={() => setMediaCategoryFilter(grade)}>{grade === "ALL" ? t("allGrades") : grade}</button>)}
       </div>}
       <div className="toolbar">
         <div className="toolbar-group" style={{ flex: 1 }}>
@@ -2710,9 +2790,9 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           {(isCirculation || isReturnPage || page === "books") && <select aria-label={t("filter")} className="select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="ALL">{t("all")}</option>{isCirculation ? <><option value="ACTIVE">{t("activeLoans")}</option><option value="OVERDUE">{t("overdue")}</option><option value="RETURNED">{t("history")}</option></> : isReturnPage ? <><option value="CHECKED_OUT">{t("checkedOut")}</option><option value="OVERDUE">{t("overdue")}</option></> : <><option value="AVAILABLE">{t("available")}</option><option value="BORROWED">{t("borrowedStatus")}</option></>}
           </select>}
-          {(page === "books" || isMedia) && <select aria-label={t("filterByCategory")} className="select-control" value={mediaCategoryFilter} onChange={(event) => setMediaCategoryFilter(event.target.value)}>
+          {page === "books" && <select aria-label={t("filterByCategory")} className="select-control" value={mediaCategoryFilter} onChange={(event) => setMediaCategoryFilter(event.target.value)}>
             <option value="ALL">{t("allCategories")}</option>
-            {(page === "media" ? mediaCategories : Array.from(new Set(records.map((record) => toText(record.category).trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right))).map((category) => <option key={category} value={category}>{category}</option>)}
+            {Array.from(new Set(records.map((record) => toText(record.category).trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right)).map((category) => <option key={category} value={category}>{category}</option>)}
           </select>}
         </div>
         <div className="toolbar-group">
@@ -2841,7 +2921,7 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
         <div className="form-grid">
           <label className="field"><span>{t("title")}</span><input required maxLength={200} value={youtubeTitle} onChange={(event) => setYoutubeTitle(event.target.value)} /></label>
           <label className="field"><span>{t("youtubeUrl")}</span><input required type="url" placeholder="https://youtu.be/..." value={youtubeUrl} onChange={(event) => setYoutubeUrl(event.target.value)} /><small className="form-help">{t("youtubeUrlHelp")}</small></label>
-          <label className="field"><span>{t("category")}</span><select value={youtubeCategory} onChange={(event) => setYoutubeCategory(event.target.value)}>{mediaCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+          <label className="field"><span>{t("grade")}</span><select value={youtubeCategory} onChange={(event) => setYoutubeCategory(event.target.value)}>{videoGradeCategories.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
         </div>
         <div className="modal-actions"><button type="button" className="button" onClick={() => setYoutubeVideoDialogOpen(false)}>{t("cancel")}</button><button type="submit" className="button button-primary" disabled={busy || !youtubeVideoId(youtubeUrl)}>{t("addYoutubeVideo")}</button></div>
       </form>

@@ -1805,7 +1805,7 @@ app.post("/api/media/youtube", requireStaff, asyncRoute(async (req, res) => {
     throw new ApiError(400, "Enter a valid YouTube video URL.");
   }
   url.protocol = "https:";
-  const allowedCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+  const allowedCategories = ["Textbooks", "Course Materials", "Exam Sheets", "Fiction", "Others", "Reference", "Research Papers", "Course Material", "Other", ...Array.from({ length: 12 }, (_, index) => `Grade ${index + 1}`)];
   const category = typeof req.body.category === "string" ? req.body.category.trim() : "Other";
   if (!allowedCategories.includes(category)) throw new ApiError(400, "Choose a valid media category.");
   const media = await prisma.mediaAsset.create({ data: {
@@ -1835,7 +1835,7 @@ app.post("/api/media/upload", cloudinaryUpload.single("file"), asyncRoute(async 
   } else if (!req.file.mimetype.startsWith("audio/")) {
     throw new ApiError(400, "The uploaded file is not a supported audio file.");
   }
-  const allowedCategories = ["Textbooks", "Reference", "Fiction", "Research Papers", "Course Material", "Other"];
+  const allowedCategories = ["Textbooks", "Course Materials", "Exam Sheets", "Fiction", "Others", "Reference", "Research Papers", "Course Material", "Other"];
   const category = typeof req.body.category === "string" ? req.body.category.trim() : "";
   if (category && !allowedCategories.includes(category)) {
     throw new ApiError(400, "Choose a valid media category.");

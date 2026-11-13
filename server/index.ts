@@ -1459,7 +1459,7 @@ app.post("/api/loans", asyncRoute(async (req, res) => {
       }, include: { loanItems: true },
     });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  await audit(req, "CREATE", "LOAN", loan.id, { itemCount: requestedItems.length });
+  await audit(req, "CREATE", "LOAN", loan.id, { itemCount: requestedItems.length, borrowerType: patronType });
   res.status(201).json(loan);
 }));
 
@@ -1934,6 +1934,19 @@ app.delete("/api/custom-fields/:id", requireAdmin, asyncRoute(async (req, res) =
 app.get("/api/audit-logs", requireAdmin, asyncRoute(async (_req, res) => {
   const logs = await prisma.auditLog.findMany({ include: { user: { select: { name: true, email: true } } }, orderBy: { createdAt: "desc" }, take: 200 });
   res.json(logs);
+}));
+
+app.get("/api/notifications", requireStaff, asyncRoute(async (_req, res) => {
+  const notifications = await prisma.auditLog.findMany({
+    where: { entity: { in: ["BOOK", "EXAM_SHEET", "LOAN", "LOAN_ITEM", "BOOK_RESERVATION", "MEDIA", "INVENTORY"] } },
+    select: {
+      id: true, action: true, entity: true, entityId: true, details: true, createdAt: true,
+      user: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  res.json(notifications);
 }));
 
 async function audit(req: AuthRequest, action: string, entity: string, entityId?: string, details?: Record<string, unknown>) {

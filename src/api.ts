@@ -17,6 +17,7 @@ const COLLECTION_PATHS = new Set([
   "/portal/loans",
   "/portal/reservations",
   "/audit-logs",
+  "/notifications",
 ]);
 
 type QueuedAction = { id: string; userId: string; path: string; data: unknown };

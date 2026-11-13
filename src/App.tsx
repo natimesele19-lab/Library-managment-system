@@ -1,7 +1,7 @@
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Activity, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2,
+  Activity, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bell, BookMarked, BookOpen, Building2, CircleAlert,
   CalendarDays, Camera, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign,
   Clock3, Download, ExternalLink, FileAudio, FileText, GraduationCap, Languages, LayoutGrid, List, Maximize2, Minimize2, Moon, Play,
   KeyRound, LayoutDashboard, LibraryBig, LogOut, Menu, MoreHorizontal, Package, Pencil, Plus, Search,
@@ -22,8 +22,10 @@ import { LandingPage } from "./LandingPage";
 import { ResourceCover } from "./ResourceCover";
 import { DatePickerInput, ethiopianDateToGregorian, formatEthiopianDate, gregorianDateToEthiopian, todayEthiopianDate } from "./EthiopianDateInput";
 
-type Page = "dashboard" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
-type CrudPage = Exclude<Page, "dashboard" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
+const PdfCanvasViewer = lazy(() => import("./PdfCanvasViewer").then((module) => ({ default: module.PdfCanvasViewer })));
+
+type Page = "dashboard" | "notifications" | "books" | "examSheets" | "students" | "staff" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "inventory" | "media" | "reports" | "settings";
+type CrudPage = Exclude<Page, "dashboard" | "notifications" | "idCards" | "circulation" | "teacherBorrowing" | "returns" | "reservations" | "reports" | "settings">;
 const isCrudPage = (page: Page): page is CrudPage =>
   page === "books" || page === "examSheets" || page === "students" || page === "staff" || page === "inventory" || page === "media";
 type Row = ApiRecord & { [key: string]: unknown };
@@ -31,6 +33,10 @@ type ViewMode = "grid" | "list";
 type PortalMediaType = "PDF" | "AUDIO" | "VIDEO";
 type MediaPreviewInfo = { title: string; type: string; url: string; videoId?: string };
 type BorrowerRow = Row & { name: string; memberCode: string; type: "STUDENT" | "TEACHER"; gender?: string; active?: boolean };
+type ActivityAudit = {
+  id: string; action: string; entity: string; entityId?: string | null; details?: string | null;
+  createdAt: string; user?: { name?: string | null } | null;
+};
 type Stats = {
   totalBooks: number; totalExamSheets: number; borrowedBooks: number; activeStudents: number; overdueBooks: number;
   borrowersThisMonth: number; finesCollected: number;
@@ -110,6 +116,7 @@ async function uploadLibraryLogo(file: File, endpoint = "/upload"): Promise<stri
 
 const navItems: { page: Page; icon: typeof LayoutDashboard; label: string; section: "main" | "manage" }[] = [
   { page: "dashboard", icon: LayoutDashboard, label: "dashboard", section: "main" },
+  { page: "notifications", icon: Bell, label: "notifications", section: "main" },
   { page: "books", icon: BookOpen, label: "books", section: "manage" },
   { page: "examSheets", icon: FileText, label: "examSheets", section: "manage" },
   { page: "students", icon: GraduationCap, label: "students", section: "manage" },
@@ -288,12 +295,106 @@ function MediaPreviewDialog({ preview, onClose, t }: {
       </div>
       {fullscreenError && <div className="notice" role="alert">{fullscreenError}</div>}
       {preview.type === "VIDEO" && preview.videoId ? <iframe title={preview.title} src={preview.url} className="media-video-player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
-        : preview.type === "PDF" ? <iframe title={preview.title} src={preview.url} className="media-pdf-player" />
+        : preview.type === "PDF" ? <Suspense fallback={<div className="pdf-viewer-status" role="status">{t("loading")}</div>}><PdfCanvasViewer url={preview.url} t={t} /></Suspense>
           : preview.type === "IMAGE" ? <img alt={preview.title} src={preview.url} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }} />
             : preview.type === "AUDIO" ? <audio controls src={preview.url} style={{ width: "100%", margin: "34px 0" }}>{t("audioPlaybackNotSupported")}</audio>
               : <a className="button" href={preview.url} target="_blank" rel="noopener noreferrer">{t("openFile")}</a>}
     </div>
   </div>;
+}
+
+function NotificationsPage({ records, stats, loading, online, t, onNavigate }: {
+  records: ActivityAudit[]; stats: Stats; loading: boolean; online: boolean;
+  t: (key: string) => string; onNavigate: (page: Page) => void;
+}) {
+  const [filter, setFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const auditEntries = records.map((record) => {
+    let details: Record<string, unknown> = {};
+    try {
+      details = JSON.parse(record.details || "{}") as Record<string, unknown>;
+    } catch {
+      details = {};
+    }
+    const entity = record.entity.toUpperCase();
+    const action = record.action.toUpperCase();
+    const category = entity === "LOAN" || entity === "LOAN_ITEM" ? details.borrowerType === "TEACHER" ? "teacherBorrowing" : "borrowing"
+      : entity === "BOOK_RESERVATION" ? "reservations"
+        : ["BOOK", "EXAM_SHEET", "MEDIA", "INVENTORY"].includes(entity) ? "collection" : "system";
+    const actionKey = action === "CREATE" || action === "UPLOAD" ? "notificationCreated"
+      : action === "UPDATE" ? "notificationUpdated"
+        : action === "DELETE" ? "notificationDeleted"
+          : action === "RETURN" || action === "SCAN_RETURN" ? "notificationReturned"
+            : action === "FULFILL_BOOK_RESERVATION" ? "notificationReservationFulfilled"
+              : action === "FINE_PAYMENT" ? "notificationFinePaid" : "notificationActivity";
+    const entityKey = entity === "BOOK" ? "books"
+      : entity === "EXAM_SHEET" ? "examSheet"
+        : entity === "BOOK_RESERVATION" ? "reservationQueue"
+          : entity === "LOAN" || entity === "LOAN_ITEM" ? "borrowBooks"
+            : entity === "MEDIA" ? "media" : entity === "INVENTORY" ? "inventory" : "system";
+    const target: Page = category === "borrowing" || category === "teacherBorrowing"
+      ? category === "teacherBorrowing" ? "teacherBorrowing" : "circulation"
+      : category === "reservations" ? "reservations"
+        : entity === "EXAM_SHEET" ? "examSheets" : entity === "MEDIA" ? "media"
+          : entity === "INVENTORY" ? "inventory" : entity === "BOOK" ? "books" : "dashboard";
+    return {
+      id: record.id,
+      category,
+      title: `${t(actionKey)} · ${t(entityKey)}`,
+      description: `${record.user?.name || t("system")} · ${new Date(record.createdAt).toLocaleString(i18n.language)}`,
+      icon: category === "borrowing" || category === "teacherBorrowing" ? BookOpen : category === "reservations" ? BookMarked : category === "system" ? CircleAlert : Activity,
+      target,
+      searchText: `${record.action} ${record.entity} ${record.user?.name || ""}`.toLowerCase(),
+    };
+  });
+  const systemEntries = [
+    ...(stats.overdueBooks > 0 ? [{
+      id: "system-overdue",
+      category: "system",
+      title: t("overdue"),
+      description: t("overdueAlert").replace("{{count}}", String(stats.overdueBooks)),
+      icon: CircleAlert,
+      target: "circulation" as Page,
+      searchText: `${t("overdue")} ${t("notifications")}`.toLowerCase(),
+    }] : []),
+    ...(!online ? [{
+      id: "system-offline",
+      category: "system",
+      title: t("offlineStatus"),
+      description: t("offlineNotification"),
+      icon: CircleAlert,
+      target: "dashboard" as Page,
+      searchText: `${t("offlineStatus")} ${t("notifications")}`.toLowerCase(),
+    }] : []),
+  ];
+  const entries = [...systemEntries, ...auditEntries]
+    .filter((entry) => filter === "ALL" || entry.category === filter)
+    .filter((entry) => !normalizedSearch || `${entry.title} ${entry.description} ${entry.searchText}`.toLowerCase().includes(normalizedSearch));
+  const filters = [["ALL", "all"], ["borrowing", "borrowBooks"], ["teacherBorrowing", "teacherBorrowing"], ["collection", "collectionActivity"], ["reservations", "reservationQueue"], ["system", "systemAlerts"]] as const;
+
+  return <section className="notifications-page">
+    <div className="page-heading"><div><div className="eyebrow">{t("overview")} · {t("notifications")}</div><h1 className="page-title">{t("notifications")}</h1><p className="page-description">{t("notificationsDescription")}</p></div></div>
+    <div className="notification-tools">
+      <div className="notification-filters" role="group" aria-label={t("filterNotifications")}>
+        {filters.map(([value, label]) => <button key={value} type="button" className={`button ${filter === value ? "active" : ""}`}
+          aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(label)}</button>)}
+      </div>
+      <label className="notification-search"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+    </div>
+    {loading ? <div className="panel loading-state">{t("loading")}</div>
+      : entries.length ? <div className="notification-feed">{entries.map((entry) => {
+        const Icon = entry.icon;
+        const categoryLabel = filters.find(([value]) => value === entry.category)?.[1] || "systemAlerts";
+        return <article className={`panel notification-card notification-${entry.category}`} key={entry.id}>
+          <span className="notification-icon"><Icon size={17} /></span>
+          <div className="notification-content"><div className="notification-card-heading"><h2>{entry.title}</h2><span className="notification-category">{t(categoryLabel)}</span></div>
+            <p>{entry.description}</p></div>
+          <button type="button" className="button notification-open" onClick={() => onNavigate(entry.target)}>{t("view")}</button>
+        </article>;
+      })}</div>
+        : <div className="panel empty-state">{normalizedSearch ? t("noMatchingNotifications") : t("noNotifications")}</div>}
+  </section>;
 }
 
 function Brand({ libraryName, logoUrl = "" }: { libraryName: string; logoUrl?: string }) {
@@ -787,6 +888,8 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("library-sidebar-collapsed") === "true");
   const [records, setRecords] = useState<Row[]>([]);
+  const [activityRecords, setActivityRecords] = useState<ActivityAudit[]>([]);
+  const [online, setOnline] = useState(navigator.onLine);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mediaPreview, setMediaPreview] = useState<{ title: string; type: string; url: string; videoId?: string } | null>(null);
   const [borrowers, setBorrowers] = useState<Row[]>([]);
@@ -821,6 +924,17 @@ function App() {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("library-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const handleNavigation = () => setLoginPage(window.location.pathname === "/login");
@@ -902,6 +1016,15 @@ function App() {
       if (page === "dashboard" || page === "reports") {
         const dashboard = await api.get<Stats>("/dashboard");
         if (isCurrentLoad()) setStats(dashboard);
+      } else if (page === "notifications") {
+        const [activities, dashboard] = await Promise.all([
+          api.get<ActivityAudit[]>("/notifications"),
+          api.get<Stats>("/dashboard"),
+        ]);
+        if (isCurrentLoad()) {
+          setActivityRecords(activities);
+          setStats(dashboard);
+        }
       } else if (page === "idCards") {
         const params = new URLSearchParams();
         if (query.trim()) params.set("search", query.trim());
@@ -963,7 +1086,7 @@ function App() {
   }, [load]);
 
   useEffect(() => {
-    if (page !== "dashboard") return;
+    if (page !== "dashboard" && page !== "notifications") return;
     const interval = window.setInterval(() => { void load(); }, 60_000);
     return () => window.clearInterval(interval);
   }, [page, load]);
@@ -974,7 +1097,7 @@ function App() {
     return () => window.clearInterval(interval);
   }, [page, load]);
 
-  const isDataPage = page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
+  const isDataPage = page !== "dashboard" && page !== "notifications" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "teacherBorrowing" && page !== "reservations";
   const visibleRecords = useMemo(() => {
     if (page === "circulation" || page === "teacherBorrowing") {
       if (!query.trim()) return records;
@@ -1451,7 +1574,7 @@ function App() {
         : mimeType.startsWith("image/") ? "IMAGE"
           : toText(record.mediaType).toUpperCase() === "AUDIO" || mimeType.startsWith("audio/") ? "AUDIO" : "FILE";
       const fileEndpoint = page === "books" ? `/books/${record.id}/file` : page === "examSheets" ? `/exam-sheets/${record.id}/file` : `/media/${record.id}/file`;
-      const url = isPdf && (isCloudinaryUrl(record.filePath) || isCloudinaryUrl(record.url))
+      const url = isPdf
         ? URL.createObjectURL(await download(fileEndpoint))
         : storedUrl || URL.createObjectURL(await download(fileEndpoint));
       setMediaPreview({ title: toText(record.title), type, url });
@@ -1742,8 +1865,8 @@ function App() {
           <div className="breadcrumb"><span>{librarySettings.libraryName}</span><span style={{ margin: "0 8px" }}>/</span><strong>{pageTitle}</strong></div>
         </div>
         <div className="topbar-right">
-          <label className="search-top"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-          <button className="icon-button" aria-label={t("notifications")} title={t("notifications")} onClick={() => { setPage("circulation"); setStatusFilter("OVERDUE"); }}><Bell size={15} />{stats?.overdueBooks ? <span className="notify-dot" /> : null}</button>
+          {page !== "notifications" && <label className="search-top"><Search size={14} /><input aria-label={t("search")} placeholder={t("search")} value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
+          <button className={`icon-button ${page === "notifications" ? "active" : ""}`} aria-label={t("notifications")} title={t("notifications")} onClick={() => { setPage("notifications"); setMenuOpen(false); setQuery(""); setStatusFilter("ALL"); setMediaCategoryFilter("ALL"); }}><Bell size={15} />{stats?.overdueBooks ? <span className="notify-dot" /> : null}</button>
           <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={() => setDarkMode((enabled) => !enabled)} />
           <button className="lang-button" aria-label={t("language")} title={t("language")} onClick={changeLanguage}><Languages size={13} /><span>{i18n.language === "en" ? "EN" : "አማ"}</span><ChevronDown size={12} /></button>
@@ -1756,6 +1879,7 @@ function App() {
         <PageErrorBoundary key={page} t={t}>
         <div className="page-transition">
         {page === "dashboard" && <Dashboard stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} onNavigate={setPage} />}
+        {page === "notifications" && <NotificationsPage records={activityRecords} stats={stats} loading={loading} online={online} t={t} onNavigate={setPage} />}
         {page === "reports" && <Reports stats={stats} loading={loading} libraryName={librarySettings.libraryName} t={t} />}
         {page === "idCards" && <IDCardsPage records={records} loading={loading} query={query} setQuery={setQuery}
           libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl} t={t} />}
@@ -1769,7 +1893,7 @@ function App() {
           onAdd={() => { setEditingField(null); setForm({}); setModal("field"); }}
           onEdit={(field) => { setEditingField(field); setForm({ label: field.label, labelAm: field.labelAm || "", type: field.type, entity: field.entity || "BOOK", required: String(Boolean(field.required)) }); setModal("field"); }}
           onRemove={removeCustomField} />}
-        {page !== "dashboard" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && page !== "examSheets" && <DataPage
+        {page !== "dashboard" && page !== "notifications" && page !== "idCards" && page !== "reports" && page !== "settings" && page !== "reservations" && page !== "examSheets" && <DataPage
           page={page} records={visibleRecords} loading={loading} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
           libraryName={librarySettings.libraryName} logoUrl={librarySettings.logoUrl}
           mediaCategoryFilter={mediaCategoryFilter} setMediaCategoryFilter={setMediaCategoryFilter}
@@ -2461,7 +2585,7 @@ function IDCardsPage({ records, loading, query, setQuery, libraryName, logoUrl, 
 }
 
 function DataPage({ page, records, loading, query, setQuery, statusFilter, setStatusFilter, mediaCategoryFilter, setMediaCategoryFilter, onCreate, onEdit, onDelete, onReturn, onCollectFine, onPortalAccount, onScanReturn, onExport, onImport, onUpload, onPreview, onAddYoutubeVideo, selectedIds, onToggleSelected, onDeleteSelected, onReturnSelected, onDeleteBorrowing, onEditBorrowing, onClearHistory, onLookupError, busy, libraryName, logoUrl, t }: {
-  page: Exclude<Page, "dashboard" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
+  page: Exclude<Page, "dashboard" | "notifications" | "idCards" | "reports" | "settings" | "reservations">; records: Row[]; loading: boolean; query: string; setQuery: (value: string) => void;
   statusFilter: string; setStatusFilter: (value: string) => void; mediaCategoryFilter: string; setMediaCategoryFilter: (value: string) => void;
   libraryName: string;
   logoUrl: string;
@@ -2624,6 +2748,34 @@ function DataPage({ page, records, loading, query, setQuery, statusFilter, setSt
           const title = toText(record.title || record.name || record.asset || record.fileName);
           const recordDetails = headers.filter(([key]) => key !== "title" && key !== "id").slice(0, 4);
           const videoId = isMedia ? youtubeVideoId(record.filePath || record.url) : "";
+          if (isMedia) {
+            const mediaType = toText(record.mediaType).toUpperCase();
+            return <article className="panel record-card media-resource-card" key={record.id}>
+              <button type="button" className="media-card-open" aria-label={`${t("openMedia")}: ${title}`} onClick={() => onPreview(record)} />
+              <div className={`media-resource-visual media-resource-${mediaType.toLowerCase()}`} aria-hidden="true">
+                {mediaType === "PDF" ? <ResourceCover variant="document" title={title} imageUrl={resourceCoverImage(record)} />
+                  : videoId ? <img src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`} alt="" loading="lazy" />
+                    : <span className="media-resource-symbol">{mediaType === "VIDEO" ? <Play size={27} /> : <FileAudio size={27} />}</span>}
+                <span className="media-resource-type">{t(mediaType === "PDF" ? "pdfDocuments" : mediaType === "VIDEO" ? "video" : "audio")}</span>
+              </div>
+              <div className="media-resource-body">
+                <div className="record-card-heading">
+                  <div className="record-card-icon">{mediaType === "PDF" ? <FileText size={18} /> : videoId || mediaType === "VIDEO" ? <Play size={18} /> : <FileAudio size={18} />}</div>
+                  <div><h2>{title || "—"}</h2><small>{toText(record.author) || toText(record.fileName) || t("digitalResources")}</small></div>
+                </div>
+                <div className="media-resource-meta">
+                  <span className="media-category-badge">{toText(record.category) || "Other"}</span>
+                  <span>{formatEthiopianDate(toText(record.createdAt), i18n.language)}</span>
+                </div>
+              </div>
+              <div className="media-card-actions">
+                <button type="button" className="row-action" title={t("openMedia")} aria-label={t("openMedia")} onClick={() => onPreview(record)}>
+                  {mediaType === "PDF" ? <FileText size={14} /> : videoId || mediaType === "VIDEO" ? <Play size={14} /> : <FileAudio size={14} />}
+                </button>
+                <button type="button" className="row-action media-delete-action" title={t("delete")} aria-label={t("delete")} onClick={() => onDelete(record)}><Trash2 size={14} /></button>
+              </div>
+            </article>;
+          }
           return <article className="panel record-card" key={record.id}>
             {isPeople && <label className="record-card-select"><input type="checkbox" aria-label={`Select ${toText(record.name)}`} checked={selectedIds.includes(record.id)} onChange={() => onToggleSelected(record.id)} />{t("selectAll")}</label>}
             {(page === "books" || (isMedia && toText(record.mediaType).toUpperCase() === "PDF")) && <ResourceCover

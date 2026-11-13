@@ -171,16 +171,25 @@ button { cursor: pointer; }
 .media-table-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-table-preview svg { flex: 0 0 auto; color: #52876f; }
 .media-preview-modal { width: min(1200px,100%); }
+.media-preview-pdf-modal { display: flex; flex-direction: column; width: min(1200px,100%); height: min(88dvh,1000px); max-height: calc(100dvh - 40px); overflow: hidden; }
+.media-preview-pdf-modal .modal-head { flex: 0 0 auto; margin-bottom: 12px; }
 .media-video-player { display: block; width: 100%; height: auto; max-height: calc(100dvh - 150px); aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #111; }
 .media-preview-controls { display: flex; align-items: center; gap: 7px; }
 .media-preview-modal .modal-head { gap: 10px; }
 .media-preview-modal .modal-title { min-width: 0; overflow-wrap: anywhere; }
 .media-preview-controls { flex: 0 0 auto; }
 .media-preview-fullscreen { min-height: 34px; padding: 7px 9px; }
-.media-pdf-player { display: block; width: 100%; min-height: min(70vh,760px); flex: 1 1 auto; border: 1px solid #edf0f1; border-radius: 6px; background: #fff; }
 .media-preview-modal:fullscreen { display: flex; flex-direction: column; width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 16px; border: 0; border-radius: 0; background: #111a18; }
-.media-preview-modal:fullscreen .media-pdf-player { min-height: 0; }
+.media-preview-modal:fullscreen .pdf-canvas-scroll { min-height: 0; }
 .media-preview-modal:fullscreen .media-video-player { max-height: none; flex: 1 1 auto; }
+.pdf-canvas-viewer { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid #e8eeeb; border-radius: 7px; background: #f0f3f1; }
+.pdf-viewer-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-bottom: 1px solid #e2e8e4; background: #fff; color: #64716b; font-size: 10px; }
+.pdf-page-controls,.pdf-zoom-controls { display: flex; align-items: center; gap: 7px; }
+.pdf-viewer-toolbar .row-action { width: 29px; height: 29px; }
+.pdf-viewer-toolbar .row-action:disabled { cursor: default; opacity: .4; }
+.pdf-canvas-scroll { flex: 1 1 auto; min-height: 200px; overflow: auto; padding: 14px; -webkit-overflow-scrolling: touch; }
+.pdf-canvas-scroll canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #fff; box-shadow: 0 2px 12px rgba(30,45,37,.15); }
+.pdf-viewer-status { flex: 0 0 auto; padding: 9px 12px; color: #79857e; text-align: center; font-size: 10px; }
 .view-mode-toggle { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #e9edef; border-radius: 7px; background: #fafbfb; }
 .view-mode-toggle .button { padding: 6px 8px; }
 .view-mode-toggle .button.active { color: #34705b; border-color: #c8d9ce; background: #eaf2ee; }
@@ -203,6 +212,38 @@ button { cursor: pointer; }
 .record-card-select { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: #929b9e; font-size: 9px; }
 .record-card-file { margin-top: 12px; }
 .record-card-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #f0f2f2; }
+.media-resource-card { position: relative; display: flex; flex-direction: column; min-height: 300px; padding: 0; overflow: hidden; transition: transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
+.media-resource-card:hover { transform: translateY(-3px); border-color: #c9d9cf; box-shadow: 0 12px 30px rgba(45,76,58,.12); }
+.media-card-open { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; }
+.media-card-open:focus-visible { outline: 3px solid #77a18c; outline-offset: -3px; }
+.media-resource-visual { position: relative; display: grid; flex: 0 0 154px; place-items: center; overflow: hidden; background: linear-gradient(140deg,#eaf2ee,#dce9e0); }
+.media-resource-visual > img { width: 100%; height: 100%; object-fit: cover; }
+.media-resource-visual > .resource-cover { width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; }
+.media-resource-symbol { display: grid; width: 58px; height: 58px; place-items: center; border: 1px solid rgba(255,255,255,.62); border-radius: 18px; color: #3d745c; background: rgba(255,255,255,.58); box-shadow: 0 7px 20px rgba(49,83,62,.1); }
+.media-resource-video { background: linear-gradient(145deg,#283b34,#17231e); }
+.media-resource-video .media-resource-symbol { color: #f7fbf8; background: rgba(255,255,255,.12); }
+.media-resource-audio { background: linear-gradient(145deg,#e9e7f2,#dce8e7); }
+.media-resource-type { position: absolute; right: 11px; bottom: 10px; padding: 5px 9px; border: 1px solid rgba(255,255,255,.55); border-radius: 999px; color: #344c3e; background: rgba(255,255,255,.82); font-size: 9px; font-weight: 700; letter-spacing: .3px; backdrop-filter: blur(8px); }
+.media-resource-body { display: grid; flex: 1 1 auto; gap: 15px; padding: 15px 16px 12px; }
+.media-resource-body .record-card-heading h2 { margin-bottom: 4px; }
+.media-resource-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #8b9691; font-size: 9px; }
+.media-card-actions { position: relative; z-index: 2; display: flex; justify-content: flex-end; gap: 5px; padding: 8px 14px; border-top: 1px solid #f0f2f2; }
+.notification-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0 0 15px; }
+.notification-filters { display: flex; flex-wrap: wrap; gap: 7px; }
+.notification-filters .button { padding: 8px 11px; }
+.notification-filters .button.active { border-color: #bdd3c5; color: #34705b; background: #eaf2ee; }
+.notification-search { display: flex; align-items: center; gap: 8px; width: min(250px,100%); padding: 8px 10px; border: 1px solid #e9edef; border-radius: 6px; color: #9aa5a0; background: #fff; }
+.notification-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #46515b; background: transparent; font-size: 10px; }
+.notification-feed { display: grid; gap: 9px; }
+.notification-card { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 14px 16px; }
+.notification-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: #4b7f65; background: #edf5ef; }
+.notification-system .notification-icon { color: #a25b3d; background: #fff3e8; }
+.notification-content { min-width: 0; }
+.notification-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.notification-card-heading h2 { margin: 0; color: #34413b; font: 15px Georgia,serif; }
+.notification-card p { margin: 5px 0 0; color: #87918d; font-size: 10px; line-height: 1.5; }
+.notification-category { padding: 3px 7px; border-radius: 999px; color: #5e7567; background: #f0f5f2; font-size: 8px; font-weight: 650; }
+.notification-open { position: relative; z-index: 1; }
 .record-grid.is-list { grid-template-columns: 1fr; }
 .record-grid.is-list .record-card { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; align-items: center; gap: 12px; }
 .record-grid.is-list .record-card-select { grid-column: 1 / -1; margin-bottom: 0; }
@@ -533,6 +574,23 @@ button { cursor: pointer; }
 .dark .record-card-heading h2 { color: #e3ece6; }
 .dark .record-card-detail > strong { color: #bdc9c2; }
 .dark .record-card-actions { border-color: #2b3a34; }
+.dark .media-resource-card:hover { border-color: #527b63; box-shadow: 0 12px 30px rgba(0,0,0,.24); }
+.dark .media-resource-body .record-card-heading small,.dark .media-resource-meta { color: #9aa9a1; }
+.dark .media-card-actions { border-color: #2b3a34; }
+.dark .media-resource-symbol { color: #a8d4bb; background: rgba(31,46,39,.7); }
+.dark .media-resource-type { color: #d3ded8; border-color: rgba(183,211,194,.2); background: rgba(27,39,35,.85); }
+.dark .notification-card-heading h2 { color: #e3ece6; }
+.dark .notification-card p { color: #9aa9a1; }
+.dark .notification-category { color: #bdc9c2; background: #26352e; }
+.dark .notification-search { border-color: #35463e; color: #9aa9a1; background: #1b2723; }
+.dark .notification-search input { color: #d3ded8; }
+.dark .notification-icon { color: #a8d4bb; background: #263d33; }
+.dark .notification-system .notification-icon { color: #e9b18b; background: #403127; }
+.dark .notification-filters .button.active { border-color: #527b63; color: #b4dec3; background: #263d33; }
+.dark .pdf-canvas-viewer { border-color: #35463e; background: #17211d; }
+.dark .pdf-viewer-toolbar { border-color: #35463e; color: #bdc9c2; background: #1b2723; }
+.dark .pdf-canvas-scroll { background: #17211d; }
+.dark .pdf-viewer-status { color: #9aa9a1; }
 .dark .book-category-count { border-color: #35463e; }
 .dark .book-category-count span { color: #bac8c0; }
 .dark .book-category-count strong { color: #e3ece6; }
@@ -747,8 +805,17 @@ button { cursor: pointer; }
   .portal-topbar-brand .brand-caption { display: none; }
   .portal-media-category-tabs .media-category-tab { flex-direction: column; min-height: 54px; gap: 4px; padding: 6px 3px; font-size: 9px; line-height: 1.15; }
   .media-preview-pdf-modal { display: flex; flex-direction: column; width: 100%; height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
-  .media-preview-pdf-modal .media-pdf-player { height: 100%; min-height: 0; flex: 1 1 auto; }
+  .media-preview-pdf-modal .pdf-canvas-scroll { min-height: 0; padding: 8px; }
   .media-preview-fullscreen span { display: none; }
+  .pdf-viewer-toolbar { gap: 5px; padding: 5px 6px; }
+  .pdf-page-controls,.pdf-zoom-controls { gap: 3px; }
+  .pdf-viewer-toolbar .row-action { width: 27px; height: 27px; }
+  .notification-tools { align-items: stretch; flex-direction: column; }
+  .notification-search { width: 100%; }
+  .notification-card { grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 12px; }
+  .notification-icon { width: 32px; height: 32px; }
+  .notification-open { grid-column: 2; justify-self: start; }
+  .media-resource-visual { flex-basis: 145px; }
   .record-grid { grid-template-columns: 1fr; gap: 7px; }
   .exam-sheet-grid { grid-template-columns: 1fr; gap: 7px; }
   .record-grid.is-list .record-card { grid-template-columns: minmax(0,1fr) auto; }

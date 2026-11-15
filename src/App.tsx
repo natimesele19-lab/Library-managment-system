@@ -2041,6 +2041,18 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
   const [tab, setTab] = useState<"dashboard" | "catalog" | "digitalMedia" | "loans" | "reservations" | "notifications">("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("library-sidebar-collapsed") === "true");
+  const notificationReadStorageKey = `library-portal-notifications-read:${user.tenantId || "default"}:${user.id}`;
+  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(notificationReadStorageKey);
+      if (!stored) return new Set();
+      const parsed: unknown = JSON.parse(stored);
+      return Array.isArray(parsed) ? new Set(parsed.filter((id): id is string => typeof id === "string")) : new Set();
+    } catch (cause) {
+      console.warn("Unable to load saved notification read state.", cause);
+      return new Set();
+    }
+  });
   const [books, setBooks] = useState<Row[]>([]);
   const [examSheets, setExamSheets] = useState<Row[]>([]);
   const [loans, setLoans] = useState<Row[]>([]);
@@ -2186,6 +2198,30 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       return Number.isFinite(createdAt) && Date.now() - createdAt <= 14 * 86_400_000;
     }).map((item) => ({ id: `resource-${item.key || item.id}`, title: t("newResource"), description: toText(item.title), kind: "resource" })),
   ];
+  const unreadPortalNotifications = portalNotifications.filter((notification) => !readNotificationIds.has(notification.id));
+
+  function markPortalNotificationsRead() {
+    if (!unreadPortalNotifications.length) return;
+    const nextReadIds = new Set(readNotificationIds);
+    unreadPortalNotifications.forEach((notification) => nextReadIds.add(notification.id));
+    setReadNotificationIds(nextReadIds);
+    try {
+      localStorage.setItem(notificationReadStorageKey, JSON.stringify([...nextReadIds]));
+    } catch (cause) {
+      console.warn("Unable to save notification read state.", cause);
+      setError(t("notificationReadSaveFailed"));
+    }
+  }
+
+  function openNotifications() {
+    markPortalNotificationsRead();
+    setTab("notifications");
+    setMenuOpen(false);
+  }
+
+  useEffect(() => {
+    if (tab === "notifications") markPortalNotificationsRead();
+  }, [tab, loans, books, examSheets, media, readNotificationIds]);
 
   async function requestReservation(itemType: "BOOK" | "EXAM_SHEET", itemId: string) {
     setBusyReservation(itemId);
@@ -2280,10 +2316,13 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
       <div className="nav-caption">{t("overview")}</div>
       <nav className="portal-nav-list" aria-label={t("overview")}>
         {portalNavigation.map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`portal-nav-item ${tab === id ? "active" : ""}`}
-          aria-current={tab === id ? "page" : undefined} aria-label={label} title={label} onClick={() => { setTab(id); setMenuOpen(false); }}>
+          aria-current={tab === id ? "page" : undefined} aria-label={label} title={label} onClick={() => {
+            if (id === "notifications") openNotifications();
+            else { setTab(id); setMenuOpen(false); }
+          }}>
           <Icon size={16} strokeWidth={1.8} /><span>{label}</span>
           {id === "reservations" && activeReservations.length > 0 && <span className="nav-count">{activeReservations.length}</span>}
-          {id === "notifications" && portalNotifications.length > 0 && <span className="nav-count">{portalNotifications.length}</span>}
+          {id === "notifications" && unreadPortalNotifications.length > 0 && <span className="nav-count">{unreadPortalNotifications.length}</span>}
         </button>)}
       </nav>
       <div className="portal-sidebar-profile">
@@ -2298,7 +2337,7 @@ function SelfServicePortal({ user, libraryName, logoUrl, darkMode, onToggleTheme
           <Brand libraryName={libraryName} logoUrl={logoUrl} />
         </div>
         <div className="topbar-right"><span className="portal-user hide-mobile">{user.name}</span>
-          <button type="button" className={`icon-button portal-notification-button ${tab === "notifications" ? "active" : ""}`} aria-label={t("notifications")} title={t("notifications")} onClick={() => setTab("notifications")}><Bell size={16} />{portalNotifications.length > 0 && <span className="notify-dot" />}</button>
+          <button type="button" className={`icon-button portal-notification-button ${tab === "notifications" ? "active" : ""}`} aria-label={t("notifications")} title={t("notifications")} onClick={openNotifications}><Bell size={16} />{unreadPortalNotifications.length > 0 && <span className="notify-dot" />}</button>
           <InstallAppControl t={t} />
           <ThemeButton darkMode={darkMode} onToggle={onToggleTheme} />
           <button className="lang-button" aria-label={t("language")} title={t("language")} onClick={changeLanguage}><Languages size={13} />{i18n.language === "en" ? "EN" : "አማ"}</button>
